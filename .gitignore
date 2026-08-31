@@ -1,0 +1,20 @@
+# Build-time dependencies. @adguard/dnr-converter is GPL-3.0 and must never be
+# distributed with the extension — see ATTRIBUTION.md.
+node_modules/
+
+# Build outputs, all reproducible from source:
+#   dist/  — packaged .zip        (npm run package)
+#   site/  — hosted policy copy   (npm run site)
+dist/
+site/
+
+# Chrome's own generated ruleset index cache, written when the unpacked
+# extension is loaded. Never part of the source.
+_metadata/
+
+# Local wrangler state, including auth. Must not be published.
+.wrangler/
+
+# macOS / editor cruft
+.DS_Store
+*.log

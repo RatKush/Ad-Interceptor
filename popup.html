@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Ad Interceptor</title>
+<style>
+  /* ============================================================
+     Tokens — dark by default, with a real light theme.
+     A popup sits inside the browser chrome, so following the
+     system theme is what makes it feel native rather than pasted on.
+     ============================================================ */
+  :root {
+    --bg: #0D0D10;
+    --surface: #16161C;
+    --surface-2: #1E1E26;
+    --surface-3: #262630;
+    --border: rgba(255, 255, 255, 0.07);
+    --border-strong: rgba(255, 255, 255, 0.12);
+    --text: #F4F4F7;
+    --text-muted: #8A8A96;
+    --text-faint: #5E5E6B;
+
+    --accent: #A855F7;
+    --accent-2: #6366F1;
+    --accent-soft: rgba(168, 85, 247, 0.14);
+    --accent-line: rgba(168, 85, 247, 0.35);
+
+    --good: #34D399;
+    --danger: #FB7185;
+    --off: #3A3A45;
+
+    --shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    --radius: 14px;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #FFFFFF;
+      --surface: #F8F8FB;
+      --surface-2: #F1F1F6;
+      --surface-3: #E7E7EE;
+      --border: rgba(0, 0, 0, 0.07);
+      --border-strong: rgba(0, 0, 0, 0.12);
+      --text: #141418;
+      --text-muted: #6B6B77;
+      --text-faint: #90909C;
+
+      --accent: #7C3AED;
+      --accent-2: #4F46E5;
+      --accent-soft: rgba(124, 58, 237, 0.09);
+      --accent-line: rgba(124, 58, 237, 0.25);
+
+      --good: #059669;
+      --danger: #E11D48;
+      --off: #C9C9D2;
+
+      --shadow: 0 6px 18px rgba(20, 20, 30, 0.08);
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  /* An author `display` declaration outranks the UA stylesheet's
+     `[hidden] { display: none }`, so `.pro-form { display: flex }` kept the
+     licence form on screen for Pro users even with el.hidden = true. */
+  [hidden] { display: none !important; }
+
+  body {
+    margin: 0;
+    width: 340px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+    /* The footer collapses to zero height until a save fires, so without this
+       the last card sits flush against the bottom edge of the popup. */
+    padding-bottom: 6px;
+  }
+
+  /* ---------- Header ---------- */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 16px 18px 14px;
+  }
+
+  .mark {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    filter: drop-shadow(0 2px 8px var(--accent-soft));
+  }
+
+  .brand { flex: 1; min-width: 0; }
+
+  .brand h1 {
+    margin: 0;
+    font-size: 14.5px;
+    font-weight: 650;
+    letter-spacing: -0.2px;
+  }
+
+  /* Status pill — the at-a-glance answer to "is this working right now?" */
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 3px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--good);
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 0 0 currentColor;
+    animation: pulse 2.4s ease-out infinite;
+  }
+
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent); }
+    70%  { box-shadow: 0 0 0 5px transparent; }
+    100% { box-shadow: 0 0 0 0 transparent; }
+  }
+
+  /* Off / paused recolour the whole status line rather than just the text. */
+  body.is-off .status,
+  body.is-paused .status { color: var(--text-muted); }
+  body.is-off .status-dot,
+  body.is-paused .status-dot { animation: none; }
+  body.is-off .mark { filter: grayscale(1) opacity(0.5); }
+
+  /* ---------- Hero counter ---------- */
+  .hero {
+    position: relative;
+    margin: 2px 14px 14px;
+    padding: 20px 16px 17px;
+    border-radius: 18px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    text-align: center;
+    overflow: hidden;
+  }
+
+  /* Soft accent bloom behind the number — depth without a heavy gradient. */
+  .hero::before {
+    content: "";
+    position: absolute;
+    top: -60%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 200px;
+    height: 200px;
+    background: radial-gradient(circle, var(--accent-soft) 0%, transparent 70%);
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+
+  body.is-off .hero::before { opacity: 0; }
+
+  .hero-value {
+    position: relative;
+    font-size: 40px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -1.6px;
+    font-variant-numeric: tabular-nums;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  body.is-off .hero-value {
+    background: none;
+    -webkit-text-fill-color: var(--text-faint);
+  }
+
+  .hero-label {
+    position: relative;
+    margin-top: 5px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+  }
+
+  .hero-total {
+    position: relative;
+    margin-top: 13px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-size: 11.5px;
+    color: var(--text-muted);
+  }
+
+  .hero-total b {
+    color: var(--text);
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- Cards ---------- */
+  .card {
+    margin: 0 14px 10px;
+    padding: 13px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .row-body { flex: 1; min-width: 0; }
+
+  /* display:block matters — these are spans inside a span, so without it the
+     title and subtitle run together on one line. */
+  .row-title {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.1px;
+  }
+
+  .row-sub {
+    display: block;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ---------- Switch ---------- */
+  .switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 26px;
+    flex-shrink: 0;
+  }
+
+  .switch input { opacity: 0; width: 0; height: 0; }
+
+  .slider {
+    position: absolute;
+    inset: 0;
+    cursor: pointer;
+    background: var(--off);
+    border-radius: 999px;
+    transition: background 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .slider::before {
+    content: "";
+    position: absolute;
+    height: 20px;
+    width: 20px;
+    left: 3px;
+    top: 3px;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  input:checked + .slider {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+  }
+
+  input:checked + .slider::before { transform: translateX(18px); }
+
+  input:focus-visible + .slider {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* ---------- Buttons ---------- */
+  .btn {
+    flex-shrink: 0;
+    border: 1px solid var(--border-strong);
+    border-radius: 9px;
+    padding: 7px 13px;
+    font-size: 11.5px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    background: var(--surface-2);
+    color: var(--text);
+    transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+  }
+
+  .btn:hover:not(:disabled) { background: var(--surface-3); }
+
+  .btn:disabled { opacity: 0.4; cursor: default; }
+
+  .btn.is-paused {
+    background: var(--accent-soft);
+    border-color: var(--accent-line);
+    color: var(--accent);
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+    border-color: transparent;
+    color: #fff;
+  }
+
+  .btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
+
+  /* ---------- Pro ---------- */
+  .pro {
+    position: relative;
+    margin: 0 14px 12px;
+    padding: 14px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  /* Gradient hairline along the top edge — signals "this is the paid tier"
+     without shouting, and stays legible in both themes. */
+  .pro::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1.5px;
+    background: linear-gradient(90deg, transparent, var(--accent), var(--accent-2), transparent);
+  }
+
+  .pro-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 3px;
+  }
+
+  .pro-title {
+    flex: 1;
+    font-size: 13px;
+    font-weight: 650;
+    letter-spacing: -0.1px;
+  }
+
+  .badge {
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: var(--surface-3);
+    color: var(--text-muted);
+  }
+
+  .badge.active {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+    color: #fff;
+  }
+
+  .pro-features {
+    margin: 8px 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: 11.5px;
+    color: var(--text-muted);
+  }
+
+  .pro-features li {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 3px 0;
+  }
+
+  .pro-features svg { flex-shrink: 0; color: var(--accent); }
+
+  .pro-form {
+    display: flex;
+    gap: 7px;
+    margin-top: 12px;
+  }
+
+  .pro-form input {
+    flex: 1;
+    min-width: 0;
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 9px;
+    padding: 8px 10px;
+    font-size: 11.5px;
+    font-family: inherit;
+    color: var(--text);
+    transition: border-color 0.15s ease;
+  }
+
+  .pro-form input::placeholder { color: var(--text-faint); }
+
+  .pro-form input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .pro-msg {
+    font-size: 11px;
+    margin-top: 9px;
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+
+  .pro-msg.error { color: var(--danger); }
+
+  #removeBtn { width: 100%; margin-top: 11px; }
+
+  /* ---------- Footer ---------- */
+  /* Collapsed to nothing until a save actually happens — an always-reserved
+     strip just reads as dead space at the bottom of the popup. */
+  .footer {
+    padding: 0 18px;
+    text-align: center;
+    height: 0;
+    overflow: hidden;
+    transition: height 0.2s ease, padding 0.2s ease;
+  }
+
+  .footer.visible {
+    height: 24px;
+    padding: 3px 18px 10px;
+  }
+
+  .saved-flash {
+    font-size: 10.5px;
+    color: var(--text-faint);
+    opacity: 0;
+    transition: opacity 0.25s ease;
+  }
+
+  .saved-flash.visible { opacity: 1; }
+</style>
+</head>
+<body>
+
+  <div class="header">
+    <svg class="mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="32" y2="32">
+          <stop offset="0%" stop-color="var(--accent)"/>
+          <stop offset="100%" stop-color="var(--accent-2)"/>
+        </linearGradient>
+      </defs>
+      <path d="M16 2.5 4.5 7v9.2c0 6.6 4.7 11.6 11.5 13.3 6.8-1.7 11.5-6.7 11.5-13.3V7L16 2.5Z"
+            fill="url(#g)" opacity="0.18"/>
+      <path d="M16 2.5 4.5 7v9.2c0 6.6 4.7 11.6 11.5 13.3 6.8-1.7 11.5-6.7 11.5-13.3V7L16 2.5Z"
+            stroke="url(#g)" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="m11.2 16.2 3.3 3.3 6.3-6.7" stroke="url(#g)" stroke-width="2.2"
+            stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div class="brand">
+      <h1>Ad Interceptor</h1>
+      <div class="status">
+        <span class="status-dot"></span>
+        <span id="statusText">Protection active</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="hero">
+    <div class="hero-value" id="statPage">—</div>
+    <div class="hero-label">requests blocked on this page</div>
+    <div class="hero-total"><b id="statTotal">—</b> blocked all time</div>
+  </div>
+
+  <div class="card">
+    <label class="row">
+      <span class="row-body">
+        <span class="row-title">Ad blocking</span>
+        <span class="row-sub">Ads, pop-ups &amp; trackers</span>
+      </span>
+      <span class="switch">
+        <input type="checkbox" id="adsToggle">
+        <span class="slider"></span>
+      </span>
+    </label>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <span class="row-body">
+        <div class="row-title" id="siteHost">&nbsp;</div>
+        <div class="row-sub" id="siteStatus">&nbsp;</div>
+      </span>
+      <button class="btn" id="siteToggleBtn">Pause</button>
+    </div>
+  </div>
+
+  <div class="pro" id="proCard">
+    <div class="pro-head">
+      <span class="pro-title">Pro</span>
+      <span class="badge" id="proBadge">Inactive</span>
+    </div>
+
+    <ul class="pro-features" id="proFeatures">
+      <li>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <path d="M2.5 6.2 4.8 8.5 9.5 3.5" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        YouTube video ads
+      </li>
+      <li>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <path d="M2.5 6.2 4.8 8.5 9.5 3.5" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Anti-adblock wall bypass
+      </li>
+      <li>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <path d="M2.5 6.2 4.8 8.5 9.5 3.5" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Daily filter updates
+      </li>
+    </ul>
+
+    <div class="pro-form" id="proForm">
+      <input type="text" id="licenseKey" placeholder="Licence key" autocomplete="off" spellcheck="false">
+      <button class="btn btn-primary" id="activateBtn">Activate</button>
+    </div>
+
+    <button class="btn" id="removeBtn" hidden>Remove licence</button>
+    <div class="pro-msg" id="proMessage" hidden></div>
+  </div>
+
+  <div class="footer" id="footer">
+    <div class="saved-flash" id="savedFlash">Saved</div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

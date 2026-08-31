@@ -1,0 +1,48 @@
+! Title: Ad Interceptor — supplemental rules
+! Description: Our own rules, for ads the upstream lists miss or under-block.
+! Syntax: standard Adblock Plus filter syntax. Converted by
+!   scripts/build-filters.mjs into rules/custom-1.json, which is listed FIRST
+!   in the manifest and always enabled — so a fix here can never be the chunk
+!   that gets dropped when static-rule quota runs short.
+!
+! Use $important on domain blocks that upstream deliberately under-blocks.
+! It outranks the exception rules in EasyList, but still sits below the
+! per-site pause and master-off overrides (priority 2,000,000), so the user
+! can always overrule us.
+!
+! Adding a rule: state the date, the report, and WHY upstream didn't cover it.
+! A rule without that context is one nobody can safely remove later.
+
+! ---------------------------------------------------------------------------
+! 2026-08-29 — html-load.com ad-proxy family
+!
+! Reported live on www.catforum.com (6.stg / 9.stg subdomains) and on
+! cookieandkate.com (bare 8. subdomain). These hosts proxy ad content
+! behind randomised subdomains and paths that embed the visited site's own
+! hostname (/session/<rand>/<rand>/www.catforum.com/...), specifically so the
+! request looks first-party and defeats path- and domain-pattern filters.
+! Confirmed serving image/png ad creatives via Cloudflare.
+!
+! EasyList lists this family but blocks it ONLY for popups
+! (`||html-load.com^$popup`, `||html-load.com^$document,popup`), which
+! converts to a main_frame-only DNR rule — so ads loaded as images, scripts
+! or sub-frames were never blocked. Only the .cc sibling is blocked outright
+! upstream. These rules close that gap across all resource types.
+!
+! Sibling domains taken from EasyList's own grouping of this family
+! (easylist.txt: `$popup,domain=07c225f3.online|content-loader.com|
+! css-load.com|html-load.cc|html-load.com|img-load.com`).
+!
+! Subdomains rotate freely (6.stg, 9.stg, 8, ...), which is why these are
+! ||domain^ rules rather than anything host-specific.
+!
+! TRADE-OFF: this is a proxy service, so a site could in principle route real
+! assets through it. Blocking the whole domain is the aggressive choice and
+! matches this product's stance; per-site Pause is the escape hatch if a site
+! turns out to depend on it.
+||html-load.com^$important
+||html-load.cc^$important
+||content-loader.com^$important
+||css-load.com^$important
+||img-load.com^$important
+||07c225f3.online^$important

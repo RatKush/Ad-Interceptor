@@ -1,0 +1,74 @@
+{
+  "manifest_version": 3,
+  "name": "Ad Interceptor",
+  "version": "3.0",
+  "minimum_chrome_version": "121",
+  "description": "Blocks every ad — banners, pop-ups, video ads, pop-unders and the trackers behind them. Aggressive by default.",
+  "permissions": [
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess",
+    "storage",
+    "scripting",
+    "declarativeNetRequestFeedback"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Ad Interceptor",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "custom-1",
+        "enabled": true,
+        "path": "rules/custom-1.json"
+      },
+      {
+        "id": "filters-1",
+        "enabled": true,
+        "path": "rules/filters-1.json"
+      },
+      {
+        "id": "filters-2",
+        "enabled": false,
+        "path": "rules/filters-2.json"
+      },
+      {
+        "id": "filters-3",
+        "enabled": false,
+        "path": "rules/filters-3.json"
+      },
+      {
+        "id": "filters-4",
+        "enabled": false,
+        "path": "rules/filters-4.json"
+      },
+      {
+        "id": "filters-5",
+        "enabled": false,
+        "path": "rules/filters-5.json"
+      },
+      {
+        "id": "filters-6",
+        "enabled": false,
+        "path": "rules/filters-6.json"
+      }
+    ]
+  }
+}

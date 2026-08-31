@@ -1,0 +1,24 @@
+{
+  "name": "ad-interceptor",
+  "version": "1.0.0",
+  "description": "Build tooling for the Ad Interceptor extension (dev-only; never shipped)",
+  "main": "background.js",
+  "scripts": {
+    "build": "node scripts/build-filters.mjs",
+    "test": "node scripts/test-pro.mjs",
+    "package": "./scripts/package.sh",
+    "verify": "node scripts/verify.mjs",
+    "design": "node scripts/screenshot-popup.mjs",
+    "store": "node scripts/store-screenshots.mjs",
+    "site": "node scripts/build-site.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "@adguard/dnr-converter": "^1.1.2",
+    "@adguard/tsurlfilter": "^6.0.3"
+  },
+  "private": true
+}
