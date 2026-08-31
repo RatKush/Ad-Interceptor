@@ -2,6 +2,10 @@
 
 A Chrome extension (Manifest V3) with one job: block ads. Banners, pop-ups,
 pop-unders, video ads and the tracking infrastructure behind them.
+published on Chrome Web store:
+https://chromewebstore.google.com/detail/ad-interceptor/oghcaogilkdcnofflfkejobjolinkmpp?authuser=2&hl=en
+
+<img width="1433" height="881" alt="image" src="https://github.com/user-attachments/assets/c2b24fa3-a583-4944-b7b9-b43b2fe8d18d" />
 
 Formerly "Data Saver" (v2.x), which also blocked images and video generally.
 As of v3.0 that scope is gone — this is an ad blocker, nothing else.
