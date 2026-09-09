@@ -53,6 +53,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initSiteToggle();
   initPro();
   initStats();
+  initReviewPrompt();
 });
 
 // ----------------------------
@@ -115,6 +116,42 @@ function initStats() {
 }
 
 // ----------------------------
+// ⭐ Review prompt
+// ----------------------------
+// background.js owns the "should we ask" decision (see shouldAskForReview);
+// this only renders the answer. Shown at most once ever — 'review:asked' is
+// sent as soon as the card appears, so ignoring it counts as an answer.
+function initReviewPrompt() {
+  const card = document.getElementById('reviewCard');
+  const countEl = document.getElementById('reviewCount');
+  const rateBtn = document.getElementById('reviewRateBtn');
+  const dismissBtn = document.getElementById('reviewDismissBtn');
+
+  send('review:check').then(async (res) => {
+    if (!res?.ask) return;
+
+    const stats = await send('stats:get');
+    countEl.textContent = stats ? stats.total.toLocaleString() : 'plenty of';
+
+    card.hidden = false;
+    send('review:asked');
+  });
+
+  rateBtn.addEventListener('click', () => {
+    // Built from chrome.runtime.id rather than a hardcoded item id, so it
+    // cannot drift from the listing and works in an unpacked dev load too.
+    chrome.tabs.create({
+      url: `https://chromewebstore.google.com/detail/${chrome.runtime.id}/reviews`
+    });
+    window.close();
+  });
+
+  dismissBtn.addEventListener('click', () => {
+    card.hidden = true;
+  });
+}
+
+// ----------------------------
 // ✨ Pro
 // ----------------------------
 function initPro() {
@@ -132,13 +169,27 @@ function initPro() {
     message.hidden = !text;
   }
 
+  const teaserCard = document.getElementById('teaserCard');
+  const teaserBtn = document.getElementById('teaserBtn');
+
+  // Goes to the LANDING page, not /pricing. Deliberate: while the checkout is
+  // still in sandbox, a direct link would drop people into a test payment
+  // form. The landing page explains Pro without asking for money.
+  teaserBtn.addEventListener('click', () => {
+    chrome.tabs.create({ url: 'https://ad-interceptor.pages.dev/' });
+    window.close();
+  });
+
   function renderPro(status) {
     // Free-only builds compile Pro out entirely (see config.js). Hide the
-    // whole card rather than showing a licence box that cannot work.
+    // whole card rather than showing a licence box that cannot work, and show
+    // the teaser in its place so free users at least know Pro exists.
     if (status && status.available === false) {
       card.hidden = true;
+      teaserCard.hidden = !status.teaser;
       return;
     }
+    teaserCard.hidden = true;
     const active = !!status?.pro;
     badge.textContent = active ? 'Active' : 'Inactive';
     badge.classList.toggle('active', active);

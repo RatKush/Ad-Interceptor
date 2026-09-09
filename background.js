@@ -12,7 +12,7 @@
 //   5. YouTube ad removal      (youtube.js)       — Pro
 //   6. Server-refreshed filters into the dynamic store — Pro
 
-import { PRO_ENABLED } from './config.js';
+import { PRO_ENABLED, PRO_TEASER } from './config.js';
 
 // STATIC import, and it has to be. An earlier version used dynamic import() so
 // the free package could omit the file entirely — that silently broke every
@@ -403,11 +403,47 @@ async function cosmeticFor(hostname) {
 // ----------------------------
 // 📨 Messages
 // ----------------------------
+// ----------------------------
+// ⭐ Review prompt
+// ----------------------------
+// Zero ratings is the single biggest drag on both store ranking and
+// click-through: a listing with no reviews reads as abandoned. So ask — once,
+// and only after the extension has demonstrably done its job.
+//
+// Both conditions have to hold. Days alone would ask someone who installed it
+// and never browsed; blocked-count alone would ask on day one, when nobody has
+// formed an opinion worth writing down. Together they mean "this has been
+// quietly working for you for a week".
+//
+// Asked at most ONCE, ever. `reviewAsked` is set the moment the card is
+// displayed, not when the button is clicked — someone who ignores it has
+// answered, and asking again is how an extension earns a one-star review for
+// nagging.
+const REVIEW_MIN_DAYS = 7;
+const REVIEW_MIN_BLOCKED = 500;
+
+async function shouldAskForReview() {
+  const { installedAt, blockedTotal = 0, reviewAsked } =
+    await chrome.storage.local.get(['installedAt', 'blockedTotal', 'reviewAsked']);
+
+  if (reviewAsked) return false;
+  // Absent for anyone who installed before this shipped — they get a clock
+  // starting at their next update rather than being asked immediately.
+  if (!installedAt) return false;
+  if (Date.now() - installedAt < REVIEW_MIN_DAYS * 24 * 60 * 60 * 1000) return false;
+
+  return blockedTotal >= REVIEW_MIN_BLOCKED;
+}
+
 const HANDLERS = {
   'cosmetic:get': (msg, sender) =>
     cosmeticFor(msg.hostname || (sender.url ? new URL(sender.url).hostname : '')),
 
-  'license:status': async () => ({ ...(await licenseStatus()), available: PRO_ENABLED }),
+  'license:status': async () => ({
+    ...(await licenseStatus()),
+    available: PRO_ENABLED,
+    teaser: PRO_TEASER && !PRO_ENABLED
+  }),
 
   'stats:get': async (msg) => {
     await totalWrite; // settle any in-flight increment so the popup isn't stale
@@ -420,6 +456,14 @@ const HANDLERS = {
     const result = await validateLicense(msg.key);
     await refreshAll(); // Pro scripts register/unregister immediately
     return { ...result, status: { ...(await licenseStatus()), available: PRO_ENABLED } };
+  },
+
+  'review:check': async () => ({ ask: await shouldAskForReview() }),
+
+  // Called when the card is shown, so it is never shown twice.
+  'review:asked': async () => {
+    await chrome.storage.local.set({ reviewAsked: Date.now() });
+    return { ok: true };
   },
 
   'license:clear': async () => {
@@ -481,6 +525,12 @@ async function startup() {
 // ----------------------------
 chrome.runtime.onInstalled.addListener(async () => {
   await migrateFromV2();
+
+  // First seen. Written only if absent, so an update never resets the clock
+  // and never re-arms a review prompt that has already been shown.
+  const { installedAt } = await chrome.storage.local.get('installedAt');
+  if (!installedAt) await chrome.storage.local.set({ installedAt: Date.now() });
+
   await startup();
   console.log('🚀 Ad Interceptor ready');
 });

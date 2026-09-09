@@ -1,0 +1,14 @@
+{
+  "extName": {
+    "message": "Ad Interceptor — 广告拦截与弹窗拦截",
+    "description": "Chrome Web Store item title. Max 75 chars. Keep 'Ad Interceptor' as the brand and translate only the descriptor after the dash — store search is per-locale and this field carries the most weight. Never use the 'AdBlock' prefix (trademarked)."
+  },
+  "extDescription": {
+    "message": "拦截所有广告：横幅、弹窗、视频广告、弹出式底层窗口，以及它们背后的追踪器。",
+    "description": "Store short description, shown under the title. Max 132 chars."
+  },
+  "actionTitle": {
+    "message": "Ad Interceptor",
+    "description": "Toolbar icon tooltip. The brand alone — the long SEO title would be unreadable as a tooltip."
+  }
+}

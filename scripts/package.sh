@@ -35,6 +35,12 @@ cp manifest.json background.js config.js popup.html popup.js cosmetic.js \
    ATTRIBUTION.md "$STAGE/"
 cp -R icons "$STAGE/"
 
+# _locales MUST ship. Without it a manifest using __MSG_extName__ fails to
+# load outright, and a partial copy would put the literal string
+# "__MSG_extName__" on the Chrome Web Store listing. scripts/check-locales.mjs
+# asserts this against the staged package below.
+cp -R _locales "$STAGE/"
+
 mkdir -p "$STAGE/rules" "$STAGE/filters"
 cp rules/custom-*.json rules/filters-*.json "$STAGE/rules/"
 # filters/custom.txt is a BUILD INPUT (our supplemental list in adblock
@@ -44,6 +50,11 @@ cp filters/custom-generic.css filters/custom-cosmetic.json \
 
 # --- Pro only ---------------------------------------------------------------
 if [ "$PRO" = "true" ]; then
+  # Mirror image of the free build's audit: a Pro build talks to a server, so
+  # assert the server address is real before packaging. This is what makes a
+  # repeat of the api.example.com placeholders impossible.
+  node scripts/check-pro-config.mjs
+
   cp license.js scriptlets.js youtube.js "$STAGE/"
   cp rules/pro-*.json "$STAGE/rules/"
   cp filters/pro-generic.css filters/pro-cosmetic.json "$STAGE/filters/"
@@ -52,6 +63,23 @@ else
   # disallowed in service workers), so the file must exist — ship the stub,
   # which has the same API and no network code.
   cp license-stub.js "$STAGE/license.js"
+
+  # Blank API_BASE in the FREE package. Nothing in a free build reads it (the
+  # stub replaces license.js), but shipping the licence server's address inside
+  # a package whose store disclosure says "collects nothing" is a claim nobody
+  # should have to take on trust — and scripts/audit-package.mjs rightly fails
+  # on any external URL in shipped code. Blanking it means the free artifact
+  # provably contains no server address, and the audit stays strict rather
+  # than gaining an exception.
+  python3 - "$STAGE/config.js" <<'PYCFG'
+import re, sys
+p = sys.argv[1]
+s = open(p).read()
+s2 = re.sub(r"export const API_BASE = '[^']*';", "export const API_BASE = '';", s)
+if s2 == s and "API_BASE = ''" not in s:
+    sys.exit("package.sh: could not blank API_BASE in the staged config.js")
+open(p, 'w').write(s2)
+PYCFG
 
   # Drop the pro-* rulesets from the packaged manifest — declaring a ruleset
   # whose file is absent makes the extension fail to load outright.
@@ -73,6 +101,10 @@ fi
 if [ "$PRO" = "false" ]; then
   node scripts/audit-package.mjs "$STAGE"
 fi
+
+# Localisation is a store-listing surface: a broken catalogue shows up as
+# "__MSG_extName__" as the item's public name, so check the staged files.
+node scripts/check-locales.mjs "$STAGE"
 
 mkdir -p "$OUT_DIR"
 rm -f "$OUT_FILE"

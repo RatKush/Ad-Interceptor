@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Ad Interceptor",
-  "version": "3.0",
+  "default_locale": "en",
+  "name": "__MSG_extName__",
+  "version": "3.2",
   "minimum_chrome_version": "121",
-  "description": "Blocks every ad — banners, pop-ups, video ads, pop-unders and the trackers behind them. Aggressive by default.",
+  "description": "__MSG_extDescription__",
   "permissions": [
     "declarativeNetRequest",
     "declarativeNetRequestWithHostAccess",
@@ -19,7 +20,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Ad Interceptor",
+    "default_title": "__MSG_actionTitle__",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",

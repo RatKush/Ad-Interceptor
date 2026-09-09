@@ -280,6 +280,13 @@ try {
     await pc.ready;
     const hidden = await pc.eval("document.getElementById('proCard').hidden");
     check('popup hides the Pro card', hidden === true, `hidden=${hidden}`);
+
+    // A free build has no licence code, so the Pro card cannot work — but the
+    // teaser should still tell people Pro exists.
+    const teaserShown = await pc.eval("document.getElementById('teaserCard').hidden === false");
+    check('popup shows the Pro teaser instead', teaserShown === true, `shown=${teaserShown}`);
+    const teaserBtn = await pc.eval("document.getElementById('teaserBtn').textContent");
+    check('teaser has a call to action', /Pro/.test(teaserBtn || ''), JSON.stringify(teaserBtn));
     pc.close();
     await fetch(`${CDP}/json/close/${pop.id}`).catch(() => {});
   } else {
@@ -309,6 +316,82 @@ try {
       !revokedScripts.includes('tab-scriptlets') && !revokedScripts.includes('tab-youtube'),
       JSON.stringify(revokedScripts));
 
+  }
+
+  // ---- localisation -----------------------------------------------------
+  // If the catalogue is broken, Chrome either refuses to load the extension or
+  // ships the literal text "__MSG_extName__" as its public name on the store.
+  // The extension having loaded at all is most of the evidence; assert the
+  // rest so a half-wired locale cannot pass quietly.
+  console.log('\nLocalisation');
+  {
+    const name = await sw.eval(`chrome.i18n.getMessage('extName')`);
+    check('extName resolves', !!name && !name.includes('__MSG_'), JSON.stringify(name));
+    check('extName keeps the brand', typeof name === 'string' && name.startsWith('Ad Interceptor'), JSON.stringify(name));
+    check('extName within Chrome\'s 75-char limit', typeof name === 'string' && name.length <= 75, `${name?.length} chars`);
+
+    const desc = await sw.eval(`chrome.i18n.getMessage('extDescription')`);
+    check('extDescription resolves', !!desc && !desc.includes('__MSG_'), JSON.stringify(desc?.slice(0, 40)));
+    check('extDescription within the 132-char limit', typeof desc === 'string' && desc.length <= 132, `${desc?.length} chars`);
+
+    const tip = await sw.eval(`chrome.i18n.getMessage('actionTitle')`);
+    check('toolbar tooltip is the brand alone', tip === 'Ad Interceptor', JSON.stringify(tip));
+  }
+
+  // ---- review prompt ----------------------------------------------------
+  // A service worker cannot sendMessage to itself, and shouldAskForReview is
+  // module-scoped so Runtime.evaluate cannot reach it. So drive it the way a
+  // user does: seed storage, render the popup, look at the card.
+  console.log('\nReview prompt');
+  {
+    const DAY = 86400000;
+
+    /** Seed state, open the popup, report whether the card showed. */
+    async function askedWith(state) {
+      await sw.eval(`chrome.storage.local.remove(['reviewAsked','installedAt','blockedTotal'])`);
+      await sw.eval(`chrome.storage.local.set(${JSON.stringify(state)})`);
+      const pop = await newPage(`chrome-extension://${extId}/popup.html`);
+      await sleep(1200);
+      const t = (await cdpList()).find((x) => x.id === pop.id);
+      const pc = connect(t.webSocketDebuggerUrl);
+      await pc.ready;
+      const shown = await pc.eval("document.getElementById('reviewCard').hidden === false");
+      const count = await pc.eval("document.getElementById('reviewCount').textContent");
+      pc.close();
+      await fetch(`${CDP}/json/close/${pop.id}`).catch(() => {});
+      return { shown, count };
+    }
+
+    const fresh = await askedWith({ installedAt: Date.now(), blockedTotal: 0 });
+    check('not asked on a fresh install', fresh.shown === false);
+
+    const soon = await askedWith({ installedAt: Date.now() - 2 * DAY, blockedTotal: 5000 });
+    check('not asked before 7 days, however much was blocked', soon.shown === false);
+
+    const quiet = await askedWith({ installedAt: Date.now() - 30 * DAY, blockedTotal: 100 });
+    check('not asked when it has barely blocked anything', quiet.shown === false);
+
+    const earned = await askedWith({ installedAt: Date.now() - 8 * DAY, blockedTotal: 1200 });
+    check('asked once both thresholds are met', earned.shown === true);
+    check('the ask states the real blocked count', earned.count === '1,200', earned.count);
+
+    // The card sets reviewAsked as soon as it renders, so a second open must
+    // stay quiet even though the thresholds are still met. This is the whole
+    // difference between asking and nagging.
+    const marked = await sw.eval(`chrome.storage.local.get('reviewAsked').then(r => !!r.reviewAsked)`);
+    check('showing the card records that we asked', marked === true);
+
+    const pop2 = await newPage(`chrome-extension://${extId}/popup.html`);
+    await sleep(1200);
+    const t2 = (await cdpList()).find((x) => x.id === pop2.id);
+    const pc2 = connect(t2.webSocketDebuggerUrl);
+    await pc2.ready;
+    const again = await pc2.eval("document.getElementById('reviewCard').hidden");
+    check('never asked a second time', again === true, `hidden=${again}`);
+    pc2.close();
+    await fetch(`${CDP}/json/close/${pop2.id}`).catch(() => {});
+
+    await sw.eval(`chrome.storage.local.remove(['reviewAsked','installedAt','blockedTotal'])`);
   }
 
   sw.close();

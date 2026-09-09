@@ -14,7 +14,7 @@ Blocking layers:
 |---|---|---|---|
 | Supplemental rules (ours) | `filters/custom.txt` → `rules/custom-1.json` | 6 | Free |
 | Static network rules | `rules/filters-1..6.json` | 108,191 | Free |
-| Cosmetic element hiding | `filters/filters-generic.css` + `-cosmetic.json` | 13,634 generic selectors + 7,696 domains | Free |
+| Cosmetic element hiding | `filters/filters-generic.css` + `-cosmetic.json` | 13,635 generic selectors + 7,707 domains | Free |
 | Blocked counter | badge + popup, via `getMatchedRules()` | — | Free |
 | Anti-adblock rules | `rules/pro-1.json` + `filters/pro-generic.css` | 2,512 + 144 selectors / 428 domains | Pro |
 | Anti-adblock scriptlets | `scriptlets.js` (MAIN world) | generic flag pinning | Pro |

@@ -421,6 +421,82 @@
 
   #removeBtn { width: 100%; margin-top: 11px; }
 
+  /* ---------- Pro teaser ---------- */
+  /* Shown to free users instead of the Pro card, which needs licence code the
+     free build does not contain. Advertises; never activates. */
+  .teaser {
+    margin: 0 14px 10px;
+    padding: 13px 14px;
+    background: var(--surface);
+    border: 1px solid var(--accent-line);
+    border-radius: var(--radius);
+  }
+
+  .teaser-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 9px;
+  }
+
+  .teaser-title { font-size: 13px; font-weight: 600; letter-spacing: -0.1px; }
+
+  .teaser-tag {
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border: 1px solid var(--accent-line);
+    border-radius: 999px;
+    padding: 2px 7px;
+  }
+
+  .teaser ul {
+    margin: 0 0 11px;
+    padding-left: 1.05em;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+
+  .teaser li { margin-bottom: 3px; }
+
+  .teaser .btn { width: 100%; }
+
+  /* ---------- Review prompt ---------- */
+  /* Hidden until background.js says the thresholds are met, so the common
+     case is that this markup costs nothing but a display:none. */
+  .review {
+    margin: 0 14px 10px;
+    padding: 13px 14px;
+    background: var(--accent-soft);
+    border: 1px solid var(--accent-line);
+    border-radius: var(--radius);
+  }
+
+  .review-title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.1px;
+  }
+
+  .review-sub {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 3px;
+    line-height: 1.45;
+  }
+
+  .review-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 11px;
+  }
+
+  .review-actions .btn { flex: 1; }
+
   /* ---------- Footer ---------- */
   /* Collapsed to nothing until a save actually happens — an always-reserved
      strip just reads as dead space at the bottom of the popup. */
@@ -502,6 +578,19 @@
     </div>
   </div>
 
+  <div class="teaser" id="teaserCard" hidden>
+    <div class="teaser-head">
+      <span class="teaser-title">Pro</span>
+      <span class="teaser-tag">Coming soon</span>
+    </div>
+    <ul>
+      <li>In-stream video ads removed from the player</li>
+      <li>&ldquo;Disable your ad blocker&rdquo; walls bypassed</li>
+      <li>Filter lists refreshed daily, not per release</li>
+    </ul>
+    <button class="btn" id="teaserBtn">See what Pro adds</button>
+  </div>
+
   <div class="pro" id="proCard">
     <div class="pro-head">
       <span class="pro-title">Pro</span>
@@ -514,7 +603,7 @@
           <path d="M2.5 6.2 4.8 8.5 9.5 3.5" stroke="currentColor" stroke-width="1.8"
                 stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        YouTube video ads
+        In-stream video ads
       </li>
       <li>
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
@@ -539,6 +628,18 @@
 
     <button class="btn" id="removeBtn" hidden>Remove licence</button>
     <div class="pro-msg" id="proMessage" hidden></div>
+  </div>
+
+  <div class="review" id="reviewCard" hidden>
+    <div class="review-title">Enjoying Ad Interceptor?</div>
+    <div class="review-sub">
+      It has blocked <b id="reviewCount">—</b> ads for you so far. A quick
+      rating helps other people find it.
+    </div>
+    <div class="review-actions">
+      <button class="btn btn-primary" id="reviewRateBtn">Rate it</button>
+      <button class="btn" id="reviewDismissBtn">No thanks</button>
+    </div>
   </div>
 
   <div class="footer" id="footer">

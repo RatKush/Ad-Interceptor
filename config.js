@@ -18,3 +18,27 @@
 // placeholders, and shipping it means the data disclosure must then declare
 // "Authentication information" (see store-listing/permission-justifications.md).
 export const PRO_ENABLED = false;
+
+// Base URL of the licence backend (backend/, a Cloudflare Worker).
+//
+// Deliberately left unset. The account has no workers.dev subdomain yet, so
+// the real hostname is not knowable until the first `wrangler deploy` prints
+// it. Set it then — this is the ONLY place it appears; license.js derives both
+// of its endpoints from it.
+//
+// scripts/check-pro-config.mjs fails the build if PRO_ENABLED is true while
+// this is still unset, which is what stops a repeat of the api.example.com
+// situation: a Pro build with placeholder endpoints cannot be packaged.
+export const API_BASE = 'https://ad-interceptor-api.ad-interceptor-api.workers.dev';
+
+// Whether the popup shows the Pro teaser — the card that tells free users Pro
+// exists and links to the website.
+//
+// Separate from PRO_ENABLED on purpose. PRO_ENABLED turns on licence code and
+// the activation form; this only advertises. That split lets awareness ship
+// before Pro is buyable, and it means turning the advertising off (say, while
+// the checkout is down) does not touch anyone's entitlement.
+//
+// The teaser links to the site's LANDING page, never straight to checkout, so
+// it cannot drop someone into a sandbox payment form.
+export const PRO_TEASER = true;
