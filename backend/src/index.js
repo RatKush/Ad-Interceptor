@@ -17,8 +17,9 @@
 // customers a clean path, and it does not pretend to be DRM.
 
 import { generateKey, normalizeKey } from './keys.js';
-import { verifyPaddleSignature, extractSubject } from './paddle.js';
+import { verifyAgainstAnySecret, extractSubject } from './paddle.js';
 import { sendLicenceKey } from './mail.js';
+import { checkPaddleSourceIp } from './paddle-ips.js';
 
 const FILTERS_KV_KEY = 'pro-filters:latest';
 const ACTIVATION_TTL_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
@@ -236,19 +237,34 @@ async function issueKeyFor(env, subject) {
 }
 
 async function handleWebhook(request, env, ctx) {
+  // Source-address check first: it is cheap, and it rejects noise before any
+  // crypto runs. Not the primary control — the signature below is — so this
+  // fails OPEN when Paddle's IP endpoint is unreachable. See paddle-ips.js.
+  const ipCheck = await checkPaddleSourceIp(env, request);
+  if (!ipCheck.allowed) {
+    console.log(`webhook rejected on source ip ${ipCheck.ip}: ${ipCheck.reason}`);
+    // 403 rather than 401: this is not an authentication failure, and the
+    // distinction matters when reading Paddle's delivery log. Paddle retries
+    // either way, which is the safe behaviour if the list were ever wrong.
+    return json({ error: 'forbidden source' }, 403);
+  }
+
   // Must be the raw body — re-serialising the parsed JSON changes the bytes
   // and the HMAC will never match.
   const raw = await request.text();
 
-  const verified = await verifyPaddleSignature(
-    raw,
-    request.headers.get('Paddle-Signature'),
-    env.PADDLE_WEBHOOK_SECRET
-  );
+  // Both slots are tried. Sandbox and live are separate destinations with
+  // separate secrets, so a single slot would mean setting the live secret
+  // breaks sandbox deliveries the same minute. See verifyAgainstAnySecret.
+  const verified = await verifyAgainstAnySecret(raw, request.headers.get('Paddle-Signature'), {
+    PADDLE_WEBHOOK_SECRET: env.PADDLE_WEBHOOK_SECRET,
+    PADDLE_WEBHOOK_SECRET_LIVE: env.PADDLE_WEBHOOK_SECRET_LIVE
+  });
   if (!verified.ok) {
     console.log(`webhook rejected: ${verified.reason}`);
     return json({ error: 'invalid signature' }, 401);
   }
+  console.log(`webhook signature verified via ${verified.matched}`);
 
   let event;
   try {

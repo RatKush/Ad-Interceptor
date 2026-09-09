@@ -218,4 +218,19 @@ console.log('     change the Chrome Web Store Privacy policy field to');
 console.log('     https://ad-interceptor.pages.dev/privacy-policy — the root is now');
 console.log('     the landing page. Update the store field first, then deploy.');
 console.log('');
+if (seller.paddleEnvironment === 'production') {
+  console.log('  ############################################################');
+  console.log('  #  PRODUCTION Paddle config staged.                        #');
+  console.log('  #                                                          #');
+  console.log('  #  Do NOT deploy until BOTH are true:                      #');
+  console.log('  #    - the checkout domain is APPROVED for live            #');
+  console.log('  #      (Paddle > Checkout > Website approval)              #');
+  console.log('  #    - account verification has passed                     #');
+  console.log('  #                                                          #');
+  console.log('  #  Deploying early puts a live checkout on an unapproved    #');
+  console.log('  #  domain: Paddle.js fails to load and every visitor who    #');
+  console.log('  #  clicks Get Pro sees "Something went wrong".              #');
+  console.log('  ############################################################');
+  console.log('');
+}
 console.log('Site check passed.');

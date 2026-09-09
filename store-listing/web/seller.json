@@ -8,12 +8,12 @@
   "priceUSD": "14.99",
   "deviceLimit": 3,
   "refundDays": 14,
-  "paddleEnvironment": "sandbox",
+  "paddleEnvironment": "production",
   "//paddleEnvironment": "'sandbox' or 'production'. Controls Paddle.Environment.set() on the pricing page. Switching to production is a deliberate release step, not a default.",
-  "paddleClientToken": "test_9c6301ae6f9cb0873a0941240df",
+  "paddleClientToken": "live_f38fb41746c53acd30f5a7993fc",
   "//paddleClientToken": "Client-side token. Public by design — it ships in page source. Sandbox tokens start test_, live ones live_. NOT the API key, which must never appear here.",
-  "paddlePriceId": "pri_01m20bds6896n4e1ym7zb45ne2",
-  "//paddlePriceId": "The $14.99/yr price. Live and sandbox have DIFFERENT price ids — swap this when switching environment.",
+  "paddlePriceId": "pri_01m22n7wm9vyy45jes3bkytmer",
+  "//paddlePriceId": "The $14.99/yr LIVE price. Sandbox equivalent was pri_01m20bds6896n4e1ym7zb45ne2. Live and sandbox ids never cross environments.",
   "apiBase": "https://ad-interceptor-api.ad-interceptor-api.workers.dev",
   "//apiBase": "Licence API origin, same value as config.js API_BASE. The success panel calls it to fetch the key by transaction id. Empty = checkout still works but the key must be issued by hand."
 }

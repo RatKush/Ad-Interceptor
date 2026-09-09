@@ -495,6 +495,21 @@
 
     Paddle.Initialize({
       token: CLIENT_TOKEN,
+      // Required for Paddle Retain to work correctly on live accounts.
+      //
+      // Deliberately EMPTY. Paddle's guidance is to pass the signed-in
+      // customer's Paddle customer id (`ctm_...`) — but this is an anonymous
+      // marketing page: there is no account system, no login, and no way to
+      // know who is looking before they reach checkout. Paddle's own docs
+      // cover exactly this case: "Where you don't know the Paddle ID for a
+      // customer, you can pass an empty object to pwCustomer."
+      //
+      // It must never be an internal id or an email address — Retain only
+      // accepts a Paddle customer id, and anything else is silently useless.
+      // If sign-in is ever added, pass { id: <the ctm_ id from the licence
+      // row's paddle_customer_id> } here. Retain is also live-only; it is not
+      // loaded for sandbox accounts at all.
+      pwCustomer: {},
       // Pin the overlay's appearance instead of letting Paddle infer it.
       // Without this it can pick up the visitor's dark-mode preference while
       // the site itself is dark-themed, and a control that renders dark-on-dark

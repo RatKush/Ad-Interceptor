@@ -32,11 +32,11 @@ function hexToBytes(hex) {
 }
 
 /**
- * Verify a Paddle webhook.
+ * Verify a Paddle webhook against ONE secret.
  *
  * @param {string} rawBody   the request body exactly as received
  * @param {string} header    the Paddle-Signature header value
- * @param {string} secret    the notification destination's secret key
+ * @param {string} secret    a notification destination's secret key
  * @returns {Promise<{ok: true} | {ok: false, reason: string}>}
  */
 export async function verifyPaddleSignature(rawBody, header, secret) {
@@ -116,4 +116,36 @@ export function extractSubject(event) {
     nextBilledAt: d.next_billed_at ?? d.current_billing_period?.ends_at ?? null,
     canceledAt: d.canceled_at ?? null
   };
+}
+
+/**
+ * Verify against ANY of several configured secrets.
+ *
+ * Each notification destination has its own secret, and sandbox and live are
+ * separate destinations. With a single slot, setting the live secret silently
+ * breaks every sandbox delivery — which is a real problem while live domain
+ * approval is still pending and sandbox is the only way to test.
+ *
+ * Accepting more than one is not a weakening: each candidate is a legitimate
+ * secret issued by Paddle for a destination we own, and a forgery still has to
+ * produce a valid HMAC for one of them. It also gives secret ROTATION for
+ * free — add the new secret, deploy, remove the old one, with no window where
+ * deliveries fail.
+ *
+ * Returns which slot matched, by NAME, never the value.
+ */
+export async function verifyAgainstAnySecret(rawBody, header, secrets) {
+  const candidates = Object.entries(secrets).filter(([, v]) => typeof v === 'string' && v.trim());
+  if (!candidates.length) return { ok: false, reason: 'no signing secret configured' };
+
+  let lastReason = 'signature mismatch';
+  for (const [name, secret] of candidates) {
+    const r = await verifyPaddleSignature(rawBody, header, secret);
+    if (r.ok) return { ok: true, matched: name };
+    // A malformed header or a stale timestamp is not secret-specific, so stop
+    // rather than retrying the same rejection against every slot.
+    if (r.reason !== 'signature mismatch') return r;
+    lastReason = r.reason;
+  }
+  return { ok: false, reason: `${lastReason} (tried ${candidates.length} secret${candidates.length > 1 ? 's' : ''})` };
 }
