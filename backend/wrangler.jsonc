@@ -1,0 +1,69 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ad-interceptor-api",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-07",
+
+  // The licence store. Create it with:
+  //   npx wrangler d1 create ad-interceptor-licenses
+  // then paste the returned database_id below.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ad-interceptor-licenses",
+      "database_id": "1ce6f390-10e7-43f7-930e-413bb53c1cff"
+    }
+  ],
+
+  // Holds the pre-built Pro filter set that /v1/filters/latest serves.
+  // Create it with:
+  //   npx wrangler kv namespace create ad-interceptor-filters
+  "kv_namespaces": [
+    {
+      "binding": "FILTERS",
+      "id": "0fb85628078d4f5ebf6e4616cad4039a"
+    }
+  ],
+
+  // Brute-forcing a 100-bit key is not a real threat; this exists to stop a
+  // broken client or a bored person from burning the D1 read quota. period
+  // must be exactly 10 or 60.
+  "ratelimits": [
+    {
+      "name": "VALIDATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 20, "period": 60 }
+    }
+  ],
+
+  // Prune activation records nobody has used in 60 days, so a customer who
+  // reinstalls across machines is not permanently locked out by their own
+  // history. Daily at 04:17 UTC.
+  "triggers": {
+    "crons": ["17 4 * * *"]
+  },
+
+  // Transactional email for licence-key delivery. Requires a domain onboarded
+  // with `npx wrangler email sending enable <domain>` — a pages.dev subdomain
+  // cannot be used, because SPF/DKIM records have to be added to DNS you own.
+  "send_email": [
+    { "name": "EMAIL" }
+  ],
+
+  // Sender address for key emails. Empty disables sending entirely (the Worker
+  // records the key as undelivered rather than pretending). Set it to an
+  // address on the onboarded domain.
+  "vars": {
+    "MAIL_FROM": "",
+    "MAIL_FROM_NAME": "Ad Interceptor",
+    "SUPPORT_EMAIL": "thenightwatchcaptain@gmail.com"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+
+  // Secrets — set with `npx wrangler secret put <NAME>`, never in this file:
+  //   PADDLE_WEBHOOK_SECRET  the notification destination's signing secret
+  //   ADMIN_TOKEN            bearer token for /v1/admin/* (generate: openssl rand -hex 32)
+}

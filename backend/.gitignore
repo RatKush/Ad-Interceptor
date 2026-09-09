@@ -1,0 +1,5 @@
+node_modules/
+.wrangler/
+# Local-only: dummy resource ids and test secrets. Never deployed.
+wrangler.local.jsonc
+.dev.vars

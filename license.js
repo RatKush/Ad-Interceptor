@@ -1,7 +1,9 @@
 // license.js — Pro entitlement.
 //
-// ⚠️ DEPLOYMENT REQUIRED: LICENSE_API and PRO_FILTERS_API below are
-// placeholders. Point them at your own backend before shipping a paid build.
+// The backend is in backend/ (a Cloudflare Worker). Its hostname comes from
+// config.js's API_BASE — set that once, after the first deploy prints the URL.
+// A Pro build with API_BASE unset fails scripts/check-pro-config.mjs rather
+// than shipping endpoints that answer nothing.
 //
 // WHAT THIS CAN AND CANNOT ENFORCE
 // Everything in an extension package is on the user's disk and editable, so a
@@ -15,8 +17,10 @@
 // removal, anti-adblock scriptlets) ship to everyone and are only soft-gated —
 // MV3 bans remotely-hosted code, so there is no alternative.
 
-const LICENSE_API = 'https://api.example.com/v1/license/validate';
-const PRO_FILTERS_API = 'https://api.example.com/v1/filters/latest';
+import { API_BASE } from './config.js';
+
+const LICENSE_API = `${API_BASE}/v1/license/validate`;
+const PRO_FILTERS_API = `${API_BASE}/v1/filters/latest`;
 
 // Revalidate at most once a day — enough to notice a cancellation without
 // making the extension depend on the server being up.
@@ -28,6 +32,25 @@ const RECHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const OFFLINE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 
 const EMPTY = { key: null, plan: 'free', expiresAt: null, lastCheck: 0, lastGoodCheck: 0 };
+
+/**
+ * A stable per-install identifier, created on first use.
+ *
+ * Activation limits are unenforceable without this: a key with no per-install
+ * identity validates from unlimited machines and the limit is decorative. It
+ * is a random UUID with nothing derived from the user or the device, it lives
+ * in storage.local so it does NOT follow the Chrome profile across machines
+ * (which is the whole point — storage.sync would give every machine the same
+ * id and undercount), and it is sent only alongside a licence key. Free users
+ * never generate one, because none of this code runs in a free build.
+ */
+async function installId() {
+  const { installId: existing } = await chrome.storage.local.get('installId');
+  if (existing) return existing;
+  const fresh = crypto.randomUUID();
+  await chrome.storage.local.set({ installId: fresh });
+  return fresh;
+}
 
 async function readLicense() {
   const { license } = await chrome.storage.local.get('license');
@@ -72,18 +95,25 @@ export async function validateLicense(key) {
     const res = await fetch(LICENSE_API, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: trimmed, version: chrome.runtime.getManifest().version })
+      body: JSON.stringify({
+        key: trimmed,
+        version: chrome.runtime.getManifest().version,
+        installId: await installId()
+      })
     });
 
     if (!res.ok) return { ok: false, error: `Server returned ${res.status}.` };
 
-    // Expected shape: { valid: boolean, plan: 'pro'|'free', expiresAt: epoch_ms|null }
+    // Expected shape:
+    //   { valid: boolean, plan: 'pro'|'free', expiresAt: epoch_ms|null, reason?: string }
     const data = await res.json();
     const now = Date.now();
 
     if (!data.valid) {
       await writeLicense({ ...EMPTY, lastCheck: now });
-      return { ok: true, plan: 'free', error: 'That key is not valid.' };
+      // The server's reason is far more useful than "not valid" — "already in
+      // use on 3 devices" and "expired" need different actions from the user.
+      return { ok: true, plan: 'free', error: data.reason || 'That key is not valid.' };
     }
 
     await writeLicense({
@@ -143,7 +173,10 @@ export async function fetchProFilters() {
 
   try {
     const res = await fetch(PRO_FILTERS_API, {
-      headers: { Authorization: `Bearer ${license.key}` }
+      headers: {
+        Authorization: `Bearer ${license.key}`,
+        'X-Install-Id': await installId()
+      }
     });
     if (!res.ok) return null;
     const data = await res.json();
