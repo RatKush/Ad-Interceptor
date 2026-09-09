@@ -288,6 +288,28 @@ async function main() {
   };
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 
+  // Publish the counts so nothing has to hardcode them.
+  //
+  // These numbers move every build — upstream EasyList grows and shrinks.
+  // They have already drifted three times (108,233 -> 110,279 -> 106,787),
+  // each time leaving a store listing and a pricing page quoting a figure the
+  // package no longer contained. The store description even promises they are
+  // real build output. So the build writes them down and everything else reads
+  // from here.
+  const counts = {
+    freeNetwork: free.chunks.reduce((n, c) => n + c.length, 0),
+    proNetwork: pro.chunks.reduce((n, c) => n + c.length, 0),
+    cosmeticGeneric: free.cosmetic.generic.length,
+    cosmeticDomains: Object.keys(free.cosmetic.specific).length,
+    builtAt: new Date().toISOString().slice(0, 10)
+  };
+  await writeFile(
+    path.join(ROOT, 'filters/counts.json'),
+    `${JSON.stringify(counts, null, 2)}\n`,
+    'utf8'
+  );
+  console.log(`\nWrote filters/counts.json — free ${counts.freeNetwork.toLocaleString('en-US')} network, ${counts.cosmeticGeneric.toLocaleString('en-US')} generic cosmetic`);
+
   const count = (t) => t.chunks.reduce((n, c) => n + c.length, 0);
   const describe = (label, t) => {
     console.log(`\n${label}`);

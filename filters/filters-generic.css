@@ -13266,6 +13266,7 @@ iframe[scrolling="no"][sandbox*="allow-popups allow-modals"][style^="width: 100%
 #hgiks-top,
 .boxOverContent__banner,
 .zone.zone--loaded,
+.zone.zone--skeletonEnabled,
 .happy-under-player,
 .mntl-leaderboard-header,
 .mntl-leaderboard-spacer,
@@ -13522,9 +13523,9 @@ amp-fx-flying-carpet,
 a[data-oburl^="https://paid.outbrain.com/network/redir?"],
 a[data-redirect^="https://paid.outbrain.com/network/redir?"],
 a[href^="https://paid.outbrain.com/network/redir?"],
-a[onmousedown^="this.href='https://paid.outbrain.com/network/redir?"],
-a[onmousedown^="this.href='https://paid.outbrain.com/network/redir?"] + .ob_source { display: none !important; }
+a[onmousedown^="this.href='https://paid.outbrain.com/network/redir?"] { display: none !important; }
 
+a[onmousedown^="this.href='https://paid.outbrain.com/network/redir?"] + .ob_source,
 #block-boxes-taboola,
 #block-taboolablock,
 #component-taboola-below-article-feed,
