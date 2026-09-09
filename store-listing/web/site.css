@@ -1,0 +1,221 @@
+/* Shared styles for the public site.
+ *
+ * Deliberately carries NO webfonts and no third-party resource of any kind.
+ * The privacy policy on this same domain states that the extension contacts
+ * no one; a site that phones out to a font CDN undercuts that on its own
+ * doorstep. Font stacks fall back to system faces.
+ *
+ * The values here are copied from store-listing/privacy-policy.html, which
+ * keeps its own inline copy on purpose: that file is the document Chrome Web
+ * Store review points at, and it stays self-contained so it can never be
+ * broken by a stylesheet change. If you restyle the site, check the policy
+ * page still looks like it belongs.
+ */
+:root {
+  --bg: #FAF9FC;
+  --surface: #F1EEF7;
+  --surface-border: #E2DEEC;
+  --text: #1C1B22;
+  --text-muted: #6B6775;
+  --accent: #6D28D9;
+  --accent-soft: #EDE5FB;
+  --rule: #E2DEEC;
+  --good: #1F7A4C;
+  --good-soft: #E3F3EA;
+
+  --display: "Fraunces", Georgia, "Times New Roman", serif;
+  --body: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17151C;
+    --surface: #211F29;
+    --surface-border: #322E3D;
+    --text: #F0EEF5;
+    --text-muted: #9C97AA;
+    --accent: #A78BFA;
+    --accent-soft: #2E2540;
+    --rule: #322E3D;
+    --good: #7FD8AA;
+    --good-soft: #1C3129;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--body);
+  font-size: 16px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+main { max-width: 680px; margin: 0 auto; padding: 40px 24px 96px; }
+
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/* ---------- nav ---------- */
+.nav {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 22px 24px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  align-items: baseline;
+  font-size: 14px;
+}
+
+.nav-brand {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 17px;
+  color: var(--text);
+  text-decoration: none;
+  margin-right: auto;
+}
+
+.nav a:not(.nav-brand) { color: var(--text-muted); text-decoration: none; }
+.nav a:not(.nav-brand):hover { color: var(--accent); text-decoration: underline; }
+.nav a[aria-current="page"] { color: var(--accent); }
+
+/* ---------- headings ---------- */
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 10px;
+}
+
+h1 {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: clamp(30px, 5vw, 40px);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  margin: 0 0 6px;
+  text-wrap: balance;
+}
+
+.subtitle { color: var(--text-muted); font-size: 16.5px; margin: 0 0 28px; max-width: 52ch; }
+
+section { margin-bottom: 40px; }
+
+h2 {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 22px;
+  letter-spacing: -0.005em;
+  margin: 0 0 14px;
+  padding-top: 20px;
+  border-top: 1px solid var(--rule);
+}
+
+h3 { font-size: 16px; margin: 26px 0 8px; }
+
+/* ---------- fact strip ---------- */
+.facts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--surface-border);
+  border: 1px solid var(--surface-border);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 36px;
+}
+
+.fact { background: var(--surface); padding: 14px 16px; }
+
+.fact dt {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin: 0 0 4px;
+}
+
+.fact dd { margin: 0; font-size: 14px; font-weight: 500; }
+
+@media (max-width: 520px) { .facts { grid-template-columns: 1fr; } }
+
+/* ---------- callout ---------- */
+.tldr {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: var(--good-soft);
+  border: 1px solid var(--good-soft);
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-bottom: 44px;
+}
+
+.tldr-mark {
+  color: var(--good);
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  flex-shrink: 0;
+  padding-top: 1px;
+}
+
+.tldr p { margin: 0; font-size: 15px; }
+
+/* ---------- plans ---------- */
+.plans { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 0 0 12px; }
+@media (max-width: 560px) { .plans { grid-template-columns: 1fr; } }
+
+.plan {
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.plan.is-pro { border-color: var(--accent); }
+
+.plan-name {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+}
+
+.plan-price { font-family: var(--display); font-size: 30px; font-weight: 600; margin: 0; line-height: 1.1; }
+.plan-per { color: var(--text-muted); font-size: 14px; margin: 2px 0 14px; }
+
+.plan ul { margin: 0; padding-left: 1.1em; font-size: 14.5px; }
+.plan li { margin-bottom: 6px; }
+
+/* ---------- misc ---------- */
+ul.features { padding-left: 1.15em; }
+ul.features li { margin-bottom: 9px; }
+
+.note { font-size: 14px; color: var(--text-muted); }
+
+dl.terms dt { font-weight: 600; margin-top: 18px; }
+dl.terms dd { margin: 4px 0 0; color: var(--text-muted); }
+
+footer {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 28px 24px 64px;
+  border-top: 1px solid var(--rule);
+  font-size: 13.5px;
+  color: var(--text-muted);
+}
+
+footer a { color: var(--text-muted); }
+footer p { margin: 0 0 6px; }

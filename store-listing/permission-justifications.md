@@ -26,7 +26,7 @@ the most common cause of rejection.
 ## Permission: declarativeNetRequest / declarativeNetRequestWithHostAccess
 
 > The core blocking mechanism. All rules are static JSON files bundled
-> in the package (rules/*.json, ~110,000 rules generated from EasyList
+> in the package (rules/*.json, ~107,000 rules generated from EasyList
 > and EasyPrivacy) and evaluated by Chrome itself — the extension's own
 > code never inspects network traffic. declarativeNetRequestWithHostAccess
 > is required because those rules must apply across the full breadth of

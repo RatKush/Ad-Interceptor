@@ -1,0 +1,19 @@
+{
+  "//": "Filled into every page by scripts/build-site.mjs. The build FAILS while legalName or jurisdiction is empty, so half-finished legal pages cannot reach the live site — same guard as config.js's API_BASE.",
+  "legalName": "Ratnesh Kushwaha",
+  "//legalName": "Your full legal name. Paddle's domain review wants the sole trader's legal name in the Terms, not just a brand. Trading as 'Ad Interceptor' is fine alongside it.",
+  "jurisdiction": "India",
+  "//jurisdiction": "Country (and state/province if relevant) whose law governs the Terms — where you are resident as a sole trader. e.g. 'India' or 'England and Wales'.",
+  "contactEmail": "thenightwatchcaptain@gmail.com",
+  "priceUSD": "14.99",
+  "deviceLimit": 3,
+  "refundDays": 14,
+  "paddleEnvironment": "sandbox",
+  "//paddleEnvironment": "'sandbox' or 'production'. Controls Paddle.Environment.set() on the pricing page. Switching to production is a deliberate release step, not a default.",
+  "paddleClientToken": "test_9c6301ae6f9cb0873a0941240df",
+  "//paddleClientToken": "Client-side token. Public by design — it ships in page source. Sandbox tokens start test_, live ones live_. NOT the API key, which must never appear here.",
+  "paddlePriceId": "pri_01m20bds6896n4e1ym7zb45ne2",
+  "//paddlePriceId": "The $14.99/yr price. Live and sandbox have DIFFERENT price ids — swap this when switching environment.",
+  "apiBase": "https://ad-interceptor-api.ad-interceptor-api.workers.dev",
+  "//apiBase": "Licence API origin, same value as config.js API_BASE. The success panel calls it to fetch the key by transaction id. Empty = checkout still works but the key must be issued by hand."
+}

@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pricing — Ad Interceptor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Ad Interceptor is free with the full {{ruleCount}}-rule filter set. Pro is ${{priceUSD}} per year for up to {{deviceLimit}} devices.">
+<link rel="stylesheet" href="/site.css">
+<style>
+  /* Checkout-only styles. Kept on this page rather than in site.css because
+     this is the one page that talks to a third party at all. */
+  .buy {
+    width: 100%;
+    margin-top: 16px;
+    padding: 11px 16px;
+    font: inherit;
+    font-weight: 600;
+    color: #fff;
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 9px;
+    cursor: pointer;
+  }
+  .buy:hover:not(:disabled) { filter: brightness(1.08); }
+  .buy:disabled { opacity: 0.55; cursor: default; }
+  .buy:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  .buy-note { font-size: 12px; color: var(--text-muted); margin: 8px 0 0; text-align: center; }
+  .plan-tax { font-size: 11.5px; color: var(--text-muted); margin: -8px 0 12px; }
+
+  .keybox {
+    background: var(--good-soft);
+    border: 1px solid var(--good-soft);
+    border-radius: 12px;
+    padding: 20px;
+    margin: 0 0 32px;
+  }
+  .keybox h2 { border-top: none; padding-top: 0; margin-top: 0; }
+
+  .keywarn {
+    background: #fff4e5;
+    border: 1px solid #f0c996;
+    color: #6b4a12;
+    border-radius: 8px;
+    padding: 11px 13px;
+    font-size: 13px;
+    margin: 14px 0 4px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .keywarn {
+      background: #3a2c14;
+      border-color: #6b4f1f;
+      color: #f0d9a8;
+    }
+  }
+
+  .keyrow { display: flex; gap: 8px; align-items: center; margin: 14px 0 10px; flex-wrap: wrap; }
+  .keyactions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+
+  .keyrow code {
+    font-family: var(--mono);
+    font-size: 16px;
+    letter-spacing: 0.04em;
+    background: var(--bg);
+    border: 1px solid var(--surface-border);
+    border-radius: 8px;
+    padding: 9px 12px;
+    flex: 1;
+    min-width: 15ch;
+    word-break: break-all;
+  }
+
+  .btn-copy {
+    font: inherit;
+    font-size: 13px;
+    padding: 9px 14px;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--surface-border);
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .btn-copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<nav class="nav">
+  <a class="nav-brand" href="/">Ad Interceptor</a>
+  <a href="/pricing">Pricing</a>
+  <a href="/terms">Terms</a>
+  <a href="/refunds">Refunds</a>
+  <a href="/privacy-policy">Privacy</a>
+</nav>
+
+<main>
+  <p class="eyebrow">Pricing</p>
+  <h1>Free, permanently. Pro if you want the hard cases.</h1>
+  <p class="subtitle">
+    One plan, one price, no tiers to compare. Shown in your local currency.
+  </p>
+
+  <div class="plans">
+    <div class="plan">
+      <p class="plan-name">Free</p>
+      <p class="plan-price">$0</p>
+      <p class="plan-per">forever</p>
+      <ul>
+        <li>All {{ruleCount}} blocking rules</li>
+        <li>{{cosmeticCount}} element-hiding rules</li>
+        <li>Pop-up and pop-under blocking</li>
+        <li>Per-site pause</li>
+        <li>Blocked-request counter</li>
+        <li>No account, no data collected</li>
+      </ul>
+    </div>
+
+    <div class="plan is-pro">
+      <p class="plan-name">Pro</p>
+      <!-- Rendered with the USD price so the page is meaningful without JS and
+           to search engines; Paddle.PricePreview replaces it with the visitor's
+           own currency once it resolves (~200-500ms). -->
+      <p class="plan-price" id="proPrice">${{priceUSD}}</p>
+      <p class="plan-per">per year, up to {{deviceLimit}} devices</p>
+      <p class="plan-tax" id="proTax" hidden></p>
+      <ul>
+        <li>Everything in Free</li>
+        <li>In-stream video ad removal on major video platforms</li>
+        <li>Anti-adblock wall bypass</li>
+        <li>Daily filter updates</li>
+      </ul>
+
+      <button class="buy" id="buyPro" type="button">Get Pro</button>
+      <p class="buy-note" id="buyNote">Secure checkout by Paddle. Cancel any time.</p>
+    </div>
+  </div>
+
+  <!-- Shown after checkout completes. Paddle hands the transaction id to this
+       page, which trades it for the licence key at the licence API. -->
+  <div class="keybox" id="keyBox" hidden>
+    <h2 id="keyTitle">Payment received</h2>
+    <p id="keyStatus">Issuing your licence key…</p>
+
+    <div class="keywarn" id="keyWarn" hidden>
+      <strong>Save this now.</strong> This is the only copy we can show you.
+      Close this tab without saving it and you will need to contact us to get
+      it back.
+    </div>
+
+    <div class="keyrow" id="keyRow" hidden>
+      <code id="keyValue"></code>
+    </div>
+
+    <div class="keyactions" id="keyActions" hidden>
+      <button class="btn-copy" id="copyKey" type="button">Copy key</button>
+      <button class="btn-copy" id="downloadKey" type="button">Download as .txt</button>
+    </div>
+
+    <p class="note" id="keyHelp" hidden>
+      Paste it into the Ad Interceptor popup under <strong>Pro</strong> to
+      activate. Works on up to {{deviceLimit}} devices at once.
+    </p>
+
+    <p class="note" id="keyRecover" hidden></p>
+  </div>
+
+  <p class="note">
+    Pro is billed annually and renews until cancelled. You can cancel at any
+    time and keep access until the end of the period you have already paid for.
+  </p>
+
+  <section>
+    <h2>What Pro actually adds</h2>
+    <h3>In-stream video ads</h3>
+    <p>
+      Advertising entries are removed from the player's response on major video
+      platforms, so the ad is never requested — rather than being hidden after
+      it has already loaded.
+    </p>
+
+    <h3>Anti-adblock wall bypass</h3>
+    <p>
+      The "please disable your ad blocker" overlays. Powered by EasyList's
+      dedicated Adblock Warning Removal List, updated daily.
+    </p>
+
+    <h3>Daily filter updates</h3>
+    <p>
+      EasyList and EasyPrivacy change every day, but rules bundled inside an
+      extension can only be refreshed by shipping a new version through the
+      Chrome Web Store. Pro fetches a freshly built rule set directly, so new
+      rules apply the day they are published. This is the part that genuinely
+      needs ongoing maintenance, and it is what the subscription funds.
+    </p>
+  </section>
+
+  <section>
+    <h2>Why the free version is not crippled</h2>
+    <p>
+      Free keeps the complete filter set permanently. It is not a trial, it does
+      not expire, and no rules are withheld from it to make Pro look better. Pro
+      exists to fund the maintenance, not to ransom the basics.
+    </p>
+  </section>
+
+  <section>
+    <h2>Billing, tax and refunds</h2>
+    <p>
+      Payments are processed by <strong>Paddle</strong>, which acts as the
+      merchant of record and handles VAT and sales tax where it applies. Any tax
+      due is shown at checkout before you pay, so the price you confirm is the
+      price you are charged.
+    </p>
+    <p>
+      Purchases are covered by a {{refundDays}}-day refund policy — see the
+      <a href="/refunds">refund policy</a> for how to request one.
+    </p>
+  </section>
+</main>
+
+<footer>
+  <p><strong>{{legalName}}</strong>, trading as Ad Interceptor.</p>
+  <p>Payments are processed by Paddle.com Market Ltd, which acts as the merchant of record for all Ad Interceptor Pro purchases.</p>
+  <p><a href="/pricing">Pricing</a> &middot; <a href="/terms">Terms &amp; Conditions</a> &middot; <a href="/refunds">Refund Policy</a> &middot; <a href="/privacy-policy">Privacy Policy</a> &middot; <a href="mailto:{{contactEmail}}">{{contactEmail}}</a></p>
+</footer>
+<!-- Paddle.js is the ONLY third-party resource anywhere on this site, and it
+     loads on this page alone. Paddle restricts fully-hosted checkout links on
+     live accounts to approved mobile app companies, so overlay checkout is the
+     only route available to a browser extension. The privacy policy discloses
+     that Paddle receives data at checkout. -->
+<script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
+<script>
+  (function () {
+    var CHECKOUT_ENABLED = {{checkoutEnabled}};
+    var PADDLE_ENV = "{{paddleEnvironment}}";
+    var CLIENT_TOKEN = "{{paddleClientToken}}";
+    var PRICE_ID = "{{paddlePriceId}}";
+    var API_BASE = "{{apiBase}}";
+
+    var buy = document.getElementById('buyPro');
+    var buyNote = document.getElementById('buyNote');
+    var keyBox = document.getElementById('keyBox');
+    var keyStatus = document.getElementById('keyStatus');
+    var keyRow = document.getElementById('keyRow');
+    var keyValue = document.getElementById('keyValue');
+    var keyHelp = document.getElementById('keyHelp');
+    var keyWarn = document.getElementById('keyWarn');
+    var keyActions = document.getElementById('keyActions');
+    var keyRecover = document.getElementById('keyRecover');
+    var copyBtn = document.getElementById('copyKey');
+    var downloadBtn = document.getElementById('downloadKey');
+    var currentTxn = null;
+
+    // ---- everything below must run BEFORE the gates -------------------
+    //
+    // These were originally registered after the sandbox gate, which returns
+    // early. The post-payment redirect lands on ?recover=<txn> and therefore
+    // carries no ?test=1, so the gate fired, printed "Not on sale yet" and
+    // returned before the recover handler existed — a paying customer saw a
+    // pricing page and no key. Receipt handling cannot sit behind a gate whose
+    // whole purpose is to block PURCHASING.
+
+    copyBtn.addEventListener('click', function () {
+      var text = keyValue.textContent || '';
+      // navigator.clipboard needs a secure context and can still be blocked,
+      // so fail visibly instead of silently doing nothing.
+      if (!navigator.clipboard) { copyBtn.textContent = 'Select it and copy'; return; }
+      navigator.clipboard.writeText(text).then(function () {
+        copyBtn.textContent = 'Copied';
+        setTimeout(function () { copyBtn.textContent = 'Copy key'; }, 1800);
+      }, function () {
+        copyBtn.textContent = 'Select it and copy';
+      });
+    });
+
+    // Download the key as a text file. A copied key lives in a clipboard that
+    // the next copy overwrites; a file survives a closed tab, a crash, and a
+    // reinstall six months later.
+    downloadBtn.addEventListener('click', function () {
+      var key = keyValue.textContent || '';
+      if (!key) return;
+
+      var lines = [
+        'Ad Interceptor Pro — licence key',
+        '',
+        'Key:  ' + key,
+        '',
+        'To activate:',
+        '  1. Open the Ad Interceptor toolbar icon',
+        '  2. Find the Pro section',
+        '  3. Paste the key and press Activate',
+        '',
+        'Works on up to {{deviceLimit}} devices at once. A device you stop using',
+        'is released automatically after 60 days.',
+        '',
+        currentTxn ? 'Order reference: ' + currentTxn : '',
+        currentTxn ? 'Recover this key: ' + location.origin + '/pricing?recover=' + currentTxn : '',
+        '',
+        'Purchased: ' + new Date().toISOString().slice(0, 10),
+        'Support: {{contactEmail}}',
+        '',
+        'Payments are handled by Paddle, our merchant of record.'
+      ].filter(function (l) { return l !== ''; }).join('\n');
+
+      var blob = new Blob([lines], { type: 'text/plain;charset=utf-8' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'ad-interceptor-pro-key.txt';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // Revoking immediately can cancel the download in some browsers.
+      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+
+      downloadBtn.textContent = 'Downloaded';
+      setTimeout(function () { downloadBtn.textContent = 'Download as .txt'; }, 1800);
+    });
+
+    // ?recover=txn_... re-opens a previous purchase's key without any email
+    // infrastructure. The transaction id is unguessable and Paddle discloses
+    // it only to the buyer, which is the same basis on which the panel showed
+    // the key in the first place.
+    var recover = new URLSearchParams(location.search).get('recover');
+    if (recover && /^txn_[a-z0-9]{26}$/.test(recover)) {
+      keyBox.hidden = false;
+      document.getElementById('keyTitle').textContent = 'Thank you — here is your licence key';
+      keyStatus.textContent = 'Looking up your purchase…';
+
+      // The plan grid and buy button are noise once someone has paid, and a
+      // live "Get Pro" button on a receipt page invites a second purchase.
+      var plans = document.querySelector('.plans');
+      if (plans) plans.hidden = true;
+      keyBox.scrollIntoView({ block: 'start' });
+
+      collectKey(recover, 0);
+
+      // A receipt view needs no checkout, no price preview and no Paddle.js.
+      // Returning here also means the sandbox gate below can never overwrite
+      // what we just put on screen.
+      return;
+    }
+
+    // While the account is in SANDBOX, hide the buy button from the public.
+    //
+    // A sandbox checkout completes without taking money but still fires real
+    // webhooks, so a passer-by could mint themselves a working licence and
+    // real access to the Pro filter feed. Requiring ?test=1 keeps the page
+    // publicly readable — which is what Paddle's domain review needs — while
+    // making the payment path deliberate rather than available.
+    //
+    // In production this gate disappears and the button is simply live.
+    var testing = new URLSearchParams(location.search).has('test');
+    var ptxn = new URLSearchParams(location.search).has('_ptxn');
+    if (PADDLE_ENV === 'sandbox' && !testing && !ptxn) {
+      buy.disabled = true;
+      buy.textContent = 'Not on sale yet';
+      buyNote.textContent = 'Pro is in final testing. Check back shortly.';
+      showLocalPriceWhenReady();
+      return;
+    }
+
+    // Degrade honestly rather than throwing: an unconfigured or failed-to-load
+    // checkout should say so, not present a button that does nothing.
+    if (!CHECKOUT_ENABLED || typeof Paddle === 'undefined') {
+      buy.disabled = true;
+      buy.textContent = 'Pro is not on sale yet';
+      buyNote.textContent = typeof Paddle === 'undefined'
+        ? 'Checkout could not load. Please try again, or email us.'
+        : 'Pro is in final testing. Check back shortly.';
+      return;
+    }
+
+    if (PADDLE_ENV === 'sandbox') {
+      Paddle.Environment.set('sandbox');
+      buyNote.textContent = 'TEST MODE — no real payment is taken.';
+    }
+
+    // Initialize with the token only, so PricePreview works even when the
+    // buy button is gated off. Checkout settings are applied below.
+    function showLocalPriceWhenReady() {
+      try {
+        if (PADDLE_ENV === 'sandbox') Paddle.Environment.set('sandbox');
+        Paddle.Initialize({ token: CLIENT_TOKEN });
+        showLocalPrice();
+      } catch (e) { /* leave the rendered USD figure */ }
+    }
+
+    /**
+     * Show the visitor's actual price, not a hardcoded dollar figure.
+     *
+     * This page previously said "$14.99" to everyone while checkout charged
+     * ₹499 in India, €14.99 in the EU and ¥2,200 in Japan. A page that
+     * disagrees with its own checkout reads as broken even when the surprise
+     * is a pleasant one.
+     *
+     * Note the casing: Paddle.js takes camelCase (priceId, formattedTotals)
+     * while the REST API uses snake_case (price_id, formatted_totals). Mixing
+     * them silently yields undefined.
+     *
+     * No `address` is passed, so Paddle infers the country from the visitor's
+     * IP — the same inference checkout will make, which is what keeps the two
+     * in agreement.
+     */
+    function showLocalPrice() {
+      var priceEl = document.getElementById('proPrice');
+      var taxEl = document.getElementById('proTax');
+
+      Paddle.PricePreview({ items: [{ priceId: PRICE_ID, quantity: 1 }] })
+        .then(function (res) {
+          var item = res && res.data && res.data.details && res.data.details.lineItems &&
+                     res.data.details.lineItems[0];
+          if (!item || !item.formattedTotals) return;
+
+          // Already a locale-formatted string with the symbol and grouping.
+          // Reformatting it produces "$$9.99" or throws — use it verbatim.
+          priceEl.textContent = item.formattedTotals.total;
+
+          // Most markets are tax-inclusive, so the figure above IS the final
+          // price; the US and Canada add tax at checkout. Saying which is
+          // happening avoids a nasty surprise on the payment screen.
+          var tax = item.totals && item.totals.tax;
+          var inclusive = tax && tax !== '0';
+          taxEl.textContent = inclusive
+            ? 'Includes VAT/GST. This is the total you pay.'
+            : 'Sales tax, where it applies, is added at checkout.';
+          taxEl.hidden = false;
+        })
+        .catch(function () {
+          // Leave the rendered USD figure in place. A stale-but-plausible
+          // price beats an empty element or a spinner that never resolves.
+        });
+    }
+
+    /**
+     * Trade the transaction id for the licence key.
+     *
+     * The key is minted by the Paddle webhook, which races this page: the
+     * buyer's browser often arrives first. So poll, with a ceiling. A 404 with
+     * retryable means "not yet"; anything else is final.
+     */
+    function collectKey(transactionId, attempt) {
+      attempt = attempt || 0;
+      currentTxn = transactionId;
+      if (!API_BASE) {
+        keyStatus.textContent = 'Your payment went through. Email us and we will send your licence key straight away.';
+        return;
+      }
+      if (attempt > 20) {  // ~60s at 3s intervals
+        keyStatus.textContent = 'Your payment went through, but the key is taking longer than expected. It will be emailed to you — or email us and we will send it now.';
+        return;
+      }
+
+      fetch(API_BASE + '/v1/license/by-transaction?transaction_id=' + encodeURIComponent(transactionId))
+        .then(function (res) {
+          return res.json().then(function (body) { return { status: res.status, body: body }; });
+        })
+        .then(function (r) {
+          if (r.status === 200 && r.body.key) {
+            keyStatus.textContent = 'Here is your licence key.';
+            keyValue.textContent = r.body.key;
+            keyRow.hidden = false;
+            keyWarn.hidden = false;
+            keyActions.hidden = false;
+            keyHelp.hidden = false;
+
+            // A bookmarkable way back to this key. It is not a substitute for
+            // saving the key, but it turns "I closed the tab" from a support
+            // ticket into a link the buyer already has — the same transaction
+            // id appears on Paddle's receipt.
+            if (currentTxn) {
+              var url = location.origin + '/pricing?recover=' + encodeURIComponent(currentTxn);
+              keyRecover.innerHTML = 'Lost it? Bookmark this page to fetch it again: ' +
+                '<a href="' + url + '">' + url + '</a>';
+              keyRecover.hidden = false;
+            }
+            return;
+          }
+          if (r.status === 404 && r.body.retryable) {
+            setTimeout(function () { collectKey(transactionId, attempt + 1); }, 3000);
+            return;
+          }
+          keyStatus.textContent = 'Your payment went through. Email us and we will send your licence key straight away.';
+        })
+        .catch(function () {
+          setTimeout(function () { collectKey(transactionId, attempt + 1); }, 3000);
+        });
+    }
+
+    Paddle.Initialize({
+      token: CLIENT_TOKEN,
+      // Pin the overlay's appearance instead of letting Paddle infer it.
+      // Without this it can pick up the visitor's dark-mode preference while
+      // the site itself is dark-themed, and a control that renders dark-on-dark
+      // reads as a missing button rather than a styling glitch. Explicit beats
+      // inherited for anything on the payment path.
+      checkout: {
+        settings: {
+          displayMode: 'overlay',
+          theme: 'light'
+        }
+      },
+      eventCallback: function (event) {
+        if (event.name === 'checkout.completed') {
+          keyBox.hidden = false;
+          buy.disabled = true;
+          buy.textContent = 'Purchased';
+
+          // Paddle's own success screen says "we have emailed you details of
+          // your order" — which is true of the receipt but says nothing about
+          // the licence key sitting on the page BEHIND the overlay. Its copy
+          // is Paddle's UI and cannot be changed, and a buyer who closes the
+          // whole tab instead of the overlay loses the key.
+          //
+          // So navigate out of the overlay ourselves. The transaction id is
+          // not appended to successUrl automatically; it comes off this event,
+          // which is why this is done here rather than with settings.successUrl.
+          // The short delay lets the buyer actually register that payment
+          // succeeded before the page changes under them.
+          var txn = event.data && (event.data.transaction_id || event.data.id);
+          if (txn) {
+            keyStatus.textContent = 'Taking you to your licence key…';
+            collectKey(txn, 0);
+            setTimeout(function () {
+              // replace(), not assign(): Back should not return to a spent
+              // checkout that no longer has anything to pay for.
+              location.replace(location.pathname + '?recover=' + encodeURIComponent(txn));
+            }, 2600);
+          } else {
+            keyBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            keyStatus.textContent = 'Your payment went through. Email us and we will send your licence key straight away.';
+          }
+        }
+      }
+    });
+
+    showLocalPrice();
+
+    buy.addEventListener('click', function () {
+      // Same priceId that PricePreview quoted, so checkout cannot disagree
+      // with the page.
+      Paddle.Checkout.open({ items: [{ priceId: PRICE_ID, quantity: 1 }] });
+    });
+
+
+
+  })();
+</script>
+</body>
+</html>

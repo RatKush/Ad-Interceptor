@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ad Interceptor — Ad Blocker &amp; Pop-up Blocker for Chrome</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="A Chrome extension that blocks banner ads, pop-ups, pop-unders, video ads and the trackers behind them. {{ruleCountRounded}} rules, no analytics, no account.">
+<link rel="stylesheet" href="/site.css">
+</head>
+<body>
+<nav class="nav">
+  <a class="nav-brand" href="/">Ad Interceptor</a>
+  <a href="/pricing">Pricing</a>
+  <a href="/terms">Terms</a>
+  <a href="/refunds">Refunds</a>
+  <a href="/privacy-policy">Privacy</a>
+</nav>
+
+<main>
+  <p class="eyebrow">Chrome extension</p>
+  <h1>Blocks every ad, and the trackers behind them</h1>
+  <p class="subtitle">
+    Banner ads, pop-ups, pop-unders and video ads — stopped before they reach
+    your browser. No analytics, no account, nothing collected.
+  </p>
+
+  <dl class="facts">
+    <div class="fact"><dt>Blocking rules</dt><dd>{{ruleCount}}</dd></div>
+    <div class="fact"><dt>Data collected</dt><dd>None</dd></div>
+    <div class="fact"><dt>Account needed</dt><dd>No</dd></div>
+  </dl>
+
+  <div class="tldr">
+    <span class="tldr-mark">FREE</span>
+    <p>
+      The free version is not a trial and is not limited. It keeps the full
+      {{ruleCount}}-rule filter set permanently. Pro is an optional upgrade that adds
+      the maintenance-heavy extras.
+    </p>
+  </div>
+
+  <section>
+    <h2>What it does</h2>
+    <ul class="features">
+      <li>
+        <strong>Blocks ad and tracker requests</strong> before they leave your
+        browser. The ad never downloads, so pages load faster and lighter —
+        this is not cosmetic hiding of something already fetched.
+      </li>
+      <li>
+        <strong>Removes the empty gaps left behind.</strong> {{cosmeticCount}} element-hiding
+        rules mean a blocked page looks like a page, not a page full of holes.
+      </li>
+      <li>
+        <strong>Handles pop-ups and pop-unders</strong> as thoroughly as banner
+        ads, including on the parts of the web that push them hardest.
+      </li>
+      <li>
+        <strong>Pause on one site</strong> with a single tap, without changing
+        anything anywhere else. Some sites genuinely break under aggressive
+        blocking; this is the escape hatch.
+      </li>
+      <li>
+        <strong>Shows you the count</strong> — how many requests were blocked on
+        this page, and how many since you installed it.
+      </li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>How the blocking works</h2>
+    <p>
+      Rules are compiled from
+      <a href="https://easylist.to/" rel="noopener">EasyList and EasyPrivacy</a>,
+      the community-maintained filter lists that serious ad blockers have relied
+      on for years. They ship inside the extension package and are evaluated by
+      Chrome itself, on your machine, using the browser's own
+      <code>declarativeNetRequest</code> engine.
+    </p>
+    <p>
+      No request is ever sent to us to decide what to block, because there is no
+      "us" in the loop. The free version makes no network requests at all.
+    </p>
+  </section>
+
+  <section>
+    <h2>Privacy</h2>
+    <p>
+      No analytics. No telemetry. No tracking of any kind. Your browsing history
+      is not collected, transmitted or stored anywhere outside your own browser.
+      The full detail is in the <a href="/privacy-policy">privacy policy</a>.
+    </p>
+  </section>
+
+  <section>
+    <h2>Pro</h2>
+    <p>
+      An annual subscription for up to {{deviceLimit}} devices, priced in your
+      own currency. Adds in-stream video ad removal on major video platforms,
+      anti-adblock wall bypass, and daily filter updates that land without
+      waiting for an extension release.
+      <a href="/pricing">See the price and what is included</a>.
+    </p>
+    <!-- Deliberately no figure here. Quoting the USD number would contradict
+         the localized price on /pricing for most of the world, and showing the
+         real one would mean loading Paddle.js on the landing page — which is
+         the only page with no third-party resource at all. The link costs one
+         click and keeps both properties. Keep prices OUT of this file, comments
+         included: a literal figure here makes the site audit report a
+         hardcoded price that is not actually rendered. -->
+  </section>
+</main>
+
+<footer>
+  <p><strong>{{legalName}}</strong>, trading as Ad Interceptor.</p>
+  <p>Payments are processed by Paddle.com Market Ltd, which acts as the merchant of record for all Ad Interceptor Pro purchases.</p>
+  <p><a href="/pricing">Pricing</a> &middot; <a href="/terms">Terms &amp; Conditions</a> &middot; <a href="/refunds">Refund Policy</a> &middot; <a href="/privacy-policy">Privacy Policy</a> &middot; <a href="mailto:{{contactEmail}}">{{contactEmail}}</a></p>
+</footer>
+</body>
+</html>
