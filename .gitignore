@@ -4,9 +4,19 @@ node_modules/
 
 # Build outputs, all reproducible from source:
 #   dist/  — packaged .zip        (npm run package)
-#   site/  — hosted policy copy   (npm run site)
-dist/
-site/
+#   site/  — staged public site   (npm run site)
+#
+# Both anchored with a leading slash. A bare `site/` matches a directory of
+# that name at ANY depth, which silently swallowed design/site/ and would
+# swallow anything similarly named later.
+/dist/
+/site/
+
+# Rendered review screenshots of the live site (npm run site:shots).
+# Regenerable, ~1.5 MB a run, and they churn on every deploy. The popup shots
+# in design/ are committed because they are a stable visual reference; these
+# are a debugging tool.
+design/site/
 
 # Chrome's own generated ruleset index cache, written when the unpacked
 # extension is loaded. Never part of the source.

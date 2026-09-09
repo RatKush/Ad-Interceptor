@@ -84,7 +84,7 @@
   .btn-copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>
 </head>
-<body>
+<body class="wide">
 <nav class="nav">
   <a class="nav-brand" href="/">Ad Interceptor</a>
   <a href="/pricing">Pricing</a>
@@ -95,7 +95,7 @@
 
 <main>
   <p class="eyebrow">Pricing</p>
-  <h1>Free, permanently. Pro if you want the hard cases.</h1>
+  <h1>Free, permanently.<br>Pro if you want the hard cases.</h1>
   <p class="subtitle">
     One plan, one price, no tiers to compare. Shown in your local currency.
   </p>
@@ -171,27 +171,33 @@
 
   <section>
     <h2>What Pro actually adds</h2>
-    <h3>In-stream video ads</h3>
-    <p>
-      Advertising entries are removed from the player's response on major video
-      platforms, so the ad is never requested — rather than being hidden after
-      it has already loaded.
-    </p>
-
-    <h3>Anti-adblock wall bypass</h3>
-    <p>
-      The "please disable your ad blocker" overlays. Powered by EasyList's
-      dedicated Adblock Warning Removal List, updated daily.
-    </p>
-
-    <h3>Daily filter updates</h3>
-    <p>
-      EasyList and EasyPrivacy change every day, but rules bundled inside an
-      extension can only be refreshed by shipping a new version through the
-      Chrome Web Store. Pro fetches a freshly built rule set directly, so new
-      rules apply the day they are published. This is the part that genuinely
-      needs ongoing maintenance, and it is what the subscription funds.
-    </p>
+    <div class="cols">
+      <div>
+        <h3>In-stream video ads</h3>
+        <p>
+          Advertising entries are removed from the player's response on major
+          video platforms, so the ad is never requested — rather than being
+          hidden after it has already loaded.
+        </p>
+      </div>
+      <div>
+        <h3>Anti-adblock wall bypass</h3>
+        <p>
+          The "please disable your ad blocker" overlays. Powered by EasyList's
+          dedicated Adblock Warning Removal List, updated daily.
+        </p>
+      </div>
+      <div>
+        <h3>Daily filter updates</h3>
+        <p>
+          EasyList and EasyPrivacy change every day, but rules bundled inside
+          an extension can only be refreshed by shipping a new version through
+          the Chrome Web Store. Pro fetches a freshly built rule set directly,
+          so new rules apply the day they are published. This is what the
+          subscription funds.
+        </p>
+      </div>
+    </div>
   </section>
 
   <section>

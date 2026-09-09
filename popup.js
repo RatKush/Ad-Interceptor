@@ -172,11 +172,14 @@ function initPro() {
   const teaserCard = document.getElementById('teaserCard');
   const teaserBtn = document.getElementById('teaserBtn');
 
-  // Goes to the LANDING page, not /pricing. Deliberate: while the checkout is
-  // still in sandbox, a direct link would drop people into a test payment
-  // form. The landing page explains Pro without asking for money.
+  // Straight to /pricing. It was originally the landing page, to avoid
+  // dropping anyone into a sandbox payment form — but /pricing now gates the
+  // buy button and reads "Not on sale yet" until the account goes live, so
+  // that risk is gone. Landing on the homepage put the Pro section four
+  // scrolls down behind three other sections, ending in an inline text link.
+  // A button labelled "See what Pro adds" has to actually show what Pro adds.
   teaserBtn.addEventListener('click', () => {
-    chrome.tabs.create({ url: 'https://ad-interceptor.pages.dev/' });
+    chrome.tabs.create({ url: 'https://ad-interceptor.pages.dev/pricing' });
     window.close();
   });
 

@@ -7,7 +7,7 @@
 <meta name="description" content="A Chrome extension that blocks banner ads, pop-ups, pop-unders, video ads and the trackers behind them. {{ruleCountRounded}} rules, no analytics, no account.">
 <link rel="stylesheet" href="/site.css">
 </head>
-<body>
+<body class="wide">
 <nav class="nav">
   <a class="nav-brand" href="/">Ad Interceptor</a>
   <a href="/pricing">Pricing</a>
@@ -34,8 +34,9 @@
     <span class="tldr-mark">FREE</span>
     <p>
       The free version is not a trial and is not limited. It keeps the full
-      {{ruleCount}}-rule filter set permanently. Pro is an optional upgrade that adds
-      the maintenance-heavy extras.
+      {{ruleCount}}-rule filter set permanently. Pro is an optional upgrade that
+      adds the maintenance-heavy extras &mdash;
+      <a href="#pro">what Pro adds</a> &middot; <a href="/pricing">pricing</a>.
     </p>
   </div>
 
@@ -92,15 +93,24 @@
     </p>
   </section>
 
-  <section>
+  <section id="pro">
     <h2>Pro</h2>
-    <p>
-      An annual subscription for up to {{deviceLimit}} devices, priced in your
-      own currency. Adds in-stream video ad removal on major video platforms,
-      anti-adblock wall bypass, and daily filter updates that land without
-      waiting for an extension release.
-      <a href="/pricing">See the price and what is included</a>.
-    </p>
+    <div class="procard">
+      <p class="prolead">
+        An optional annual subscription for up to {{deviceLimit}} devices,
+        priced in your own currency.
+      </p>
+      <ul class="features">
+        <li>In-stream video ads removed from the player on major video platforms</li>
+        <li>&ldquo;Disable your ad blocker&rdquo; walls bypassed</li>
+        <li>Filter lists refreshed daily, instead of once per extension release</li>
+      </ul>
+      <a class="procta" href="/pricing">See pricing &rarr;</a>
+      <p class="note" style="margin-top:12px;">
+        The free version is not a trial. It keeps the complete
+        {{ruleCount}}-rule filter set permanently.
+      </p>
+    </div>
     <!-- Deliberately no figure here. Quoting the USD number would contradict
          the localized price on /pricing for most of the world, and showing the
          real one would mean loading Paddle.js on the landing page — which is

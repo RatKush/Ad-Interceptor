@@ -43,6 +43,17 @@
   }
 }
 
+/* One container width for the whole page chrome, so nav, main and footer can
+   never disagree.
+   680px is a READING measure — right for Terms and the privacy policy, where
+   long prose at 1100px is genuinely harder to read. It is wrong for a landing
+   page or a pricing table on a desktop monitor, which just looked like a phone
+   layout stranded in the middle of the screen. Pages that are mostly prose
+   keep the narrow measure; pages that are mostly layout opt into the wide one
+   with <body class="wide">. */
+:root { --measure: 680px; }
+body.wide { --measure: 1120px; }
+
 * { box-sizing: border-box; }
 
 body {
@@ -55,14 +66,14 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-main { max-width: 680px; margin: 0 auto; padding: 40px 24px 96px; }
+main { max-width: var(--measure); margin: 0 auto; padding: 40px 24px 96px; }
 
 a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
 a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
 /* ---------- nav ---------- */
 .nav {
-  max-width: 680px;
+  max-width: var(--measure);
   margin: 0 auto;
   padding: 22px 24px 0;
   display: flex;
@@ -209,7 +220,7 @@ dl.terms dt { font-weight: 600; margin-top: 18px; }
 dl.terms dd { margin: 4px 0 0; color: var(--text-muted); }
 
 footer {
-  max-width: 680px;
+  max-width: var(--measure);
   margin: 0 auto;
   padding: 28px 24px 64px;
   border-top: 1px solid var(--rule);
@@ -219,3 +230,79 @@ footer {
 
 footer a { color: var(--text-muted); }
 footer p { margin: 0 0 6px; }
+
+/* ---------- Pro block on the landing page ---------- */
+/* Was a paragraph ending in an inline link, at the very bottom of a long
+   page. A paid upgrade that reads as body copy is a paid upgrade nobody
+   clicks. */
+.procard {
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 22px;
+}
+
+.prolead { margin: 0 0 14px; }
+.procard ul.features { margin: 0 0 18px; font-size: 15px; }
+
+.procta {
+  display: inline-block;
+  padding: 10px 18px;
+  font-weight: 600;
+  font-size: 15px;
+  color: #fff;
+  background: var(--accent);
+  border-radius: 9px;
+  text-decoration: none;
+}
+
+.procta:hover { filter: brightness(1.08); text-decoration: none; }
+.procta:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/* ---------- wide-page layout ---------- */
+/* Prose still gets a readable measure inside a wide container — widening the
+   container is not a licence to run body text to 1100px. Only things that
+   benefit from horizontal room actually use it. */
+body.wide h1 { font-size: clamp(34px, 5.5vw, 52px); }
+body.wide .subtitle { font-size: 18px; max-width: 56ch; }
+body.wide section > p,
+body.wide .prolead,
+body.wide .note { max-width: 68ch; }
+
+@media (min-width: 900px) {
+  /* Two columns for scannable lists, one for prose. */
+  body.wide ul.features {
+    columns: 2;
+    column-gap: 44px;
+  }
+  body.wide ul.features li {
+    break-inside: avoid;
+    margin-bottom: 14px;
+  }
+  /* The Pro card's own list stays single-column: it is a short pitch, and
+     splitting three bullets across two columns reads as a mistake. */
+  body.wide .procard ul.features { columns: 1; }
+
+  /* Give the plan cards real room and let the page breathe around them. */
+  body.wide .plans {
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+    max-width: 860px;
+  }
+
+  body.wide .facts { max-width: 860px; }
+
+}
+
+/* ---------- multi-column blocks on wide pages ---------- */
+/* Explicit child divs in a grid, NOT a row-spanning grid on the section.
+   An earlier attempt used `grid-row: 1 / span 99` to make a heading span its
+   column; that created 99 grid rows and, with a 48px row gap, roughly 4,700px
+   of blank space per section. Predictable columns beat clever spanning. */
+.cols { display: grid; gap: 30px; }
+.cols > div > h3 { margin-top: 0; }
+.cols > div > p { margin-bottom: 0; max-width: 46ch; }
+
+@media (min-width: 900px) {
+  body.wide .cols { grid-template-columns: repeat(3, 1fr); gap: 40px; }
+}
