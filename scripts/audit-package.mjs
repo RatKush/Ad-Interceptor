@@ -24,11 +24,41 @@ if (!stage) {
   process.exit(2);
 }
 
+// The negative lookbehind on `:` is load-bearing. Without it, the trailing-
+// comment rule matches the `//` inside `https://` and deletes the rest of the
+// line — which silently disabled the external-URL check below for every URL
+// it was written to catch, leaving only the fetch/XHR/beacon rules doing any
+// work. A URL in a real comment is still stripped, because that `//` is not
+// preceded by a colon.
 const stripComments = (src) =>
   src
-    .replace(/\/\*[\s\S]*?\*\//g, '')  // block comments
-    .replace(/^\s*\/\/.*$/gm, '')      // whole-line comments
-    .replace(/\/\/.*$/gm, '');         // trailing comments
+    .replace(/\/\*[\s\S]*?\*\//g, '')   // block comments
+    .replace(/^\s*\/\/.*$/gm, '')       // whole-line comments
+    .replace(/(?<!:)\/\/.*$/gm, '');     // trailing comments
+
+// URLs that are NAVIGATION TARGETS, not request targets.
+//
+// The claim this audit defends is "the free build collects nothing and makes
+// no network requests". A URL the user is sent to by clicking a button is a
+// different thing from a URL the extension calls: nothing is transmitted, no
+// response is read, and it only happens on an explicit click. The Chrome Web
+// Store review page is the one such link we ship (see initReviewPrompt in
+// popup.js).
+//
+// This list exists so the exception is explicit and reviewable. Anything added
+// here must be (a) opened with chrome.tabs.create, never fetched, and (b)
+// user-initiated. It is NOT a place to park an endpoint to make the audit go
+// quiet — that is precisely the failure this script was written to catch.
+const ALLOWED_NAVIGATION = [
+  'https://chromewebstore.google.com/',
+  // Our own site: the Pro teaser's "See what Pro adds" button and, in future,
+  // help/privacy links. Same test as above — chrome.tabs.create on a click,
+  // never fetched, nothing transmitted. Trailing slash is load-bearing: it is
+  // what makes ad-interceptor.pages.dev.evil.net fail.
+  'https://ad-interceptor.pages.dev/'
+];
+
+const isAllowedNavigation = (url) => ALLOWED_NAVIGATION.some((a) => url.startsWith(a));
 
 const problems = [];
 
@@ -37,6 +67,7 @@ for (const name of readdirSync(stage)) {
   const code = stripComments(readFileSync(path.join(stage, name), 'utf8'));
 
   for (const m of code.match(/https?:\/\/[^\s'"`)]+/g) ?? []) {
+    if (isAllowedNavigation(m)) continue;
     problems.push(`${name}: external URL ${m}`);
   }
   for (const api of ['XMLHttpRequest', 'sendBeacon', 'WebSocket(', 'EventSource(']) {
@@ -65,3 +96,4 @@ if (problems.length) {
   process.exit(1);
 }
 console.log('Audit passed: stub licence module, no outbound network code.');
+console.log(`  (allowed navigation targets: ${ALLOWED_NAVIGATION.join(', ')})`);
