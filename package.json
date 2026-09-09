@@ -12,7 +12,8 @@
     "store": "node scripts/store-screenshots.mjs",
     "site": "node scripts/build-site.mjs",
     "publish-filters": "node scripts/publish-pro-filters.mjs",
-    "paddle-pricing": "node scripts/paddle-pricing.mjs"
+    "paddle-pricing": "node scripts/paddle-pricing.mjs",
+    "site:shots": "node scripts/screenshot-site.mjs"
   },
   "keywords": [],
   "author": "",
