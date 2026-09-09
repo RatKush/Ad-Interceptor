@@ -63,6 +63,10 @@ Two constraints to preserve if this is ever edited:
 
 ---
 
+<!-- PASTE:BEGIN — everything between these two markers is the store copy.
+     Nothing outside them is: the rest of this file is internal notes.
+     Do not hand-copy it — run `npm run store:copy` and paste the file it
+     writes, so the two can never drift. -->
 Block ads, pop-ups, pop-unders and the trackers behind them, on every site you visit. Ad Interceptor is a free ad blocker with 106,787 blocking rules — no account, no sign-up, and nothing collected about you.
 
 ★ WHAT IT BLOCKS
@@ -119,6 +123,7 @@ English, Spanish, Portuguese, German, French, Italian, Dutch, Polish, Russian, U
 Ad Interceptor is an independent browser extension. It is not affiliated with Google, Chrome, or any ad network it blocks. Filter lists are used under the Creative Commons Attribution-ShareAlike 3.0 licence and credited in the extension.
 
 Questions or a site that isn't blocking properly? thenightwatchcaptain@gmail.com
+<!-- PASTE:END -->
 
 ---
 

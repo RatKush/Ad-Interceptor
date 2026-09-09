@@ -13,7 +13,8 @@
     "site": "node scripts/build-site.mjs",
     "publish-filters": "node scripts/publish-pro-filters.mjs",
     "paddle-pricing": "node scripts/paddle-pricing.mjs",
-    "site:shots": "node scripts/screenshot-site.mjs"
+    "site:shots": "node scripts/screenshot-site.mjs",
+    "store:copy": "node scripts/store-copy.mjs"
   },
   "keywords": [],
   "author": "",
