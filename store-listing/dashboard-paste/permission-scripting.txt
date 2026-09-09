@@ -1,0 +1,6 @@
+Registers the on-page code that does element hiding — the part that
+removes the empty ad-shaped gaps a blocked ad leaves behind. Two
+further scripts run only for Pro users: one that neutralises
+"disable your ad blocker" detection, and one on YouTube that removes
+advertising entries from the player's response so ads are not
+requested. These scripts modify the page only; they collect nothing.

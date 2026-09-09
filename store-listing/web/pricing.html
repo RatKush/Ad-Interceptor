@@ -242,6 +242,7 @@
     var CLIENT_TOKEN = "{{paddleClientToken}}";
     var PRICE_ID = "{{paddlePriceId}}";
     var API_BASE = "{{apiBase}}";
+    var SALES_ENABLED = {{salesEnabled}};
 
     var buy = document.getElementById('buyPro');
     var buyNote = document.getElementById('buyNote');
@@ -344,6 +345,22 @@
       // A receipt view needs no checkout, no price preview and no Paddle.js.
       // Returning here also means the sandbox gate below can never overwrite
       // what we just put on screen.
+      return;
+    }
+
+    // Sales are OFF until explicitly enabled, regardless of environment.
+    //
+    // This exists because the previous gate keyed off sandbox mode — and so
+    // stopped protecting anything the instant the config moved to production,
+    // while the published extension was still free-only. Selling then would
+    // hand buyers a licence key the store build cannot activate: paid, and
+    // nothing to show for it. Flip salesEnabled only once a PRO_ENABLED build
+    // is live in the Chrome Web Store.
+    if (!SALES_ENABLED) {
+      buy.disabled = true;
+      buy.textContent = 'Not on sale yet';
+      buyNote.textContent = 'Pro is in final testing. Check back shortly.';
+      showLocalPriceWhenReady();
       return;
     }
 

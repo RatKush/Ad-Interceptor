@@ -171,6 +171,16 @@ for (const required of ['index.html', '404.html', 'pricing.html', 'terms.html', 
   const iCopy = pricing.indexOf('copyBtn.addEventListener');
   const iDownload = pricing.indexOf('downloadBtn.addEventListener');
 
+  const iSales = pricing.indexOf('if (!SALES_ENABLED)');
+  if (iSales === -1) problems.push('pricing.html: the SALES_ENABLED gate is missing');
+  else if (iGate > -1 && iSales > iGate) {
+    problems.push('pricing.html: the SALES_ENABLED gate must come BEFORE the sandbox gate');
+  }
+  if (seller.salesEnabled === true) {
+    console.log('  ⚠  salesEnabled is TRUE — the buy button is live. Only correct if a');
+    console.log('     PRO_ENABLED extension build is already published in the store.');
+  }
+
   if (iRecover === -1) problems.push('pricing.html: no recover early-return found');
   if (iGate === -1) problems.push('pricing.html: no sandbox purchase gate found');
   if (iRecover > -1 && iGate > -1 && iRecover > iGate) {

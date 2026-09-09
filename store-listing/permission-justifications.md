@@ -10,9 +10,18 @@ the most common cause of rejection.
 
 ## Single purpose description
 
-> Ad Interceptor blocks advertising. It stops ad and tracker network
-> requests, and hides the leftover ad containers on the page. That is
-> its only function.
+> Ad Interceptor is an ad blocker. It has one function: blocking advertising
+> and the trackers that come with it. It stops ad and tracker network requests
+> before they load, and hides the empty containers those blocked ads leave
+> behind on the page. It does nothing else — no other feature, no unrelated
+> functionality.
+
+Deliberately NOT keyword-optimised. This field is not indexed for store
+search; it is a policy statement a reviewer reads to check the extension does
+one narrow thing. Loading it with keywords makes it read as multi-purpose,
+which is the thing the policy prohibits. The closing sentence is doing real
+work: it answers the reviewer's actual question, which is whether anything
+else is bundled in.
 
 ## Permission: host_permissions (`<all_urls>`)
 
@@ -42,12 +51,29 @@ the most common cause of rejection.
 
 ## Permission: storage
 
-> Stores the user's own settings: the on/off switch, the list of sites
-> they have chosen to pause blocking on, the running count of blocked
-> requests, and (for Pro users) their licence key and its status.
-> Settings sync via chrome.storage.sync so they follow the user's
-> Chrome profile; nothing here is sent to us except the licence key,
-> which is covered below.
+> Stores the user's own settings and local state, and nothing else:
+>
+> - the on/off switch, and the list of sites they have chosen to pause
+>   blocking on (chrome.storage.sync, so they follow the user's Chrome
+>   profile across their own devices);
+> - the running total of blocked requests, shown in the popup;
+> - the date the extension was installed, and a flag recording that the
+>   one-time "rate this extension" prompt has already been shown, so the
+>   user is never asked twice;
+> - for Pro users only, their licence key and its status, plus a random
+>   installation identifier used to enforce the per-licence device limit.
+>
+> None of this leaves the device except the licence key, which is covered
+> below. There is no identifier of any kind in the free version, and nothing
+> stored here is derived from the user, their browsing, or their device.
+
+**Keep this list exact.** Reviewers compare a justification against what the
+code actually writes, and an undeclared key reads as concealment rather than
+an oversight. Everything the free build writes is visible in one grep:
+`chrome.storage.(sync|local).set` across background.js, popup.js and
+cosmetic.js. As of v3.2 that is: `ads`, `allowlist`, `blockedTotal`,
+`installedAt`, `reviewAsked` — plus `proFiltersAt` and `installId` in Pro
+builds only.
 
 ## Permission: scripting
 

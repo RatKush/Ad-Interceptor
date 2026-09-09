@@ -1,0 +1,5 @@
+Used only to display the "ads blocked" counter in the toolbar badge
+and popup. The extension calls getMatchedRules() to count how many of
+its own rules matched on the current tab. The result is a number
+shown to the user; the matched URLs are never stored, logged, or
+transmitted. Nothing derived from this leaves the device.

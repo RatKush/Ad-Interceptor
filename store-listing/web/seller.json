@@ -15,5 +15,7 @@
   "paddlePriceId": "pri_01m22n7wm9vyy45jes3bkytmer",
   "//paddlePriceId": "The $14.99/yr LIVE price. Sandbox equivalent was pri_01m20bds6896n4e1ym7zb45ne2. Live and sandbox ids never cross environments.",
   "apiBase": "https://ad-interceptor-api.ad-interceptor-api.workers.dev",
-  "//apiBase": "Licence API origin, same value as config.js API_BASE. The success panel calls it to fetch the key by transaction id. Empty = checkout still works but the key must be issued by hand."
+  "//apiBase": "Licence API origin, same value as config.js API_BASE. The success panel calls it to fetch the key by transaction id. Empty = checkout still works but the key must be issued by hand.",
+  "salesEnabled": false,
+  "//salesEnabled": "Master switch for the buy button, independent of paddleEnvironment. Keep FALSE until a PRO_ENABLED extension build is live in the Chrome Web Store. Selling before then hands buyers a licence key the published extension cannot activate: they pay and get nothing. The old gate keyed off sandbox mode, which silently stopped protecting anything the moment the config went to production."
 }

@@ -1,0 +1,7 @@
+The two Pro scripts are registered with `world: "MAIN"`. This is
+necessary and not a workaround: their job is to define or replace
+JavaScript properties that the page's own scripts then read, which is
+only possible from within the page's JavaScript context. An isolated
+content script cannot affect what page code sees. The scripts are
+static files in the package — no remotely-hosted code is loaded or
+evaluated, in line with the Manifest V3 requirements.

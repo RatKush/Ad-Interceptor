@@ -1,0 +1,6 @@
+Ads appear on arbitrary websites, not a predictable list, so the
+blocking rules and the element-hiding stylesheet must be able to
+apply anywhere the user browses. The extension does not read, log,
+or transmit page content. This permission exists so Chrome's own
+declarativeNetRequest engine can evaluate the bundled rules against
+outgoing requests, and so the element-hiding CSS can be injected.

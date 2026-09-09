@@ -38,6 +38,34 @@ if (found.length) {
   process.exit(1);
 }
 
+// --- permission justifications, as plain text ---------------------------
+// The source file uses markdown blockquotes so the paste-ready text stands out
+// from the surrounding notes. Pasted into a dashboard textarea those "> "
+// markers come along literally and pollute the field, so they are stripped
+// here and each field written to its own file.
+const pj = await readFile(path.join(ROOT, 'store-listing/permission-justifications.md'), 'utf8');
+const slug = (h) => h.toLowerCase()
+  .replace(/permission:\s*/, '')
+  .replace(/[^a-z0-9]+/g, '-')
+  .replace(/^-|-$/g, '');
+
+const fields = [];
+// Split on ## / ### headings and keep only the blockquoted body of each.
+const sections = pj.split(/\n(?=#{2,3} )/);
+for (const sec of sections) {
+  const heading = (sec.match(/^#{2,3} (.+)$/m) || [])[1];
+  if (!heading) continue;
+  const quoted = sec
+    .split('\n')
+    .filter((l) => l.startsWith('>'))
+    .map((l) => l.replace(/^>\s?/, ''))
+    .join('\n')
+    .trim();
+  if (!quoted) continue;
+  if (/^>/.test(quoted)) continue;
+  fields.push({ heading, slug: slug(heading), text: quoted });
+}
+
 const en = JSON.parse(await readFile(path.join(ROOT, '_locales/en/messages.json'), 'utf8'));
 
 await mkdir(OUT, { recursive: true });
@@ -52,6 +80,20 @@ console.log('');
 console.log('  Detailed description:');
 console.log('    store-listing/dashboard-paste/detailed-description.txt');
 console.log(`    ${description.length} chars (limit 16,000) — paste the WHOLE file`);
+console.log('');
+console.log('  Privacy practices tab — paste each of these files:');
+for (const f of fields) {
+  const file = `permission-${f.slug}.txt`;
+  await writeFile(path.join(OUT, file), f.text + '\n', 'utf8');
+  console.log(`    ${f.heading}`);
+  console.log(`      dashboard-paste/${file}  (${f.text.length} chars)`);
+}
+console.log('');
+console.log('  Data collection  NONE — leave every category unchecked.');
+console.log('                   Add "Authentication information" ONLY in the same');
+console.log('                   release that flips PRO_ENABLED (the licence key is');
+console.log('                   a credential sent to a server).');
+console.log('  Remote code      No.');
 console.log('');
 console.log('  Privacy policy   https://ad-interceptor.pages.dev/privacy-policy');
 console.log('  Data disclosure  "collects nothing" — PRO_ENABLED is false and the');
