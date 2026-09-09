@@ -63,45 +63,62 @@ Two constraints to preserve if this is ever edited:
 
 ---
 
-Ad Interceptor removes ads. Banner ads, pop-ups, pop-unders, video ads,
-and the tracking scripts behind them — blocked before they ever reach
-your browser, on every site you visit.
+Block ads, pop-ups, pop-unders and the trackers behind them, on every site you visit. Ad Interceptor is a free ad blocker with 106,787 blocking rules — no account, no sign-up, and nothing collected about you.
 
-**106,000+ blocking rules**
+★ WHAT IT BLOCKS
 
-Built on EasyList and EasyPrivacy, the same community-maintained filter
-lists that serious ad blockers have relied on for years. Every rule is
-evaluated by Chrome itself, on your machine. No request is ever sent to
-us to decide what to block, because there is no "us" in the loop.
+• Banner and display ads
+• Pop-ups and pop-unders
+• Video and pre-roll ad requests
+• Ad trackers and analytics scripts
+• The empty gaps a blocked ad leaves behind
 
-**Two layers, because blocking the request isn't enough**
+★ 106,787 BLOCKING RULES, EVALUATED ON YOUR MACHINE
 
-🚫 **Network blocking** — ad and tracker requests are stopped before
-they leave your browser. Pages load faster and lighter because the ad
-never downloads at all.
+Ad Interceptor is built on EasyList and EasyPrivacy — the community-maintained filter lists that serious ad blockers have relied on for years. Every rule ships inside the extension and is evaluated by Chrome itself, using the browser's own blocking engine.
 
-👁️ **Element hiding** — 13,600+ rules that remove the empty ad-shaped
-holes left behind, so a blocked page looks like a page, not a page with
-gaps in it.
+No request is ever sent to us to decide what to block, because there is no "us" in the loop.
 
-Pop-ups and pop-unders are covered as thoroughly as banner ads —
-including on the corners of the web that push them hardest.
+★ TWO LAYERS, BECAUSE BLOCKING THE REQUEST ISN'T ENOUGH
 
-**You stay in control**
+Network blocking — ad and tracker requests are stopped before they leave your browser. The ad never downloads, so pages load faster and lighter.
 
-- **Pause on this site** — one tap turns everything off for the site
-  you're on, without touching your settings anywhere else. Some sites
-  genuinely break with aggressive blocking; this is the escape hatch.
-- **Master switch** — off means off, instantly, everywhere.
-- **A live counter** — see exactly how many requests were blocked on
-  this page, and how many since you installed it.
+Element hiding — 13,635 rules remove the ad-shaped holes left behind, so a blocked page looks like a page, not a page with gaps in it.
 
-**Privacy**
+★ NO "ACCEPTABLE ADS". EVER.
 
-Ad Interceptor has no analytics, no telemetry, and no tracking of any
-kind. It does not collect your browsing history. Filter rules ship
-inside the extension and run entirely inside your browser. Full privacy
-policy: https://ad-interceptor.pages.dev
+Some popular ad blockers ship an allowlist that lets certain ads through by default, and are paid by the companies on it. Ad Interceptor has no such programme, no allowlist you have to find and switch off, and no business relationship with any ad network. Aggressive is the default, not an option you opt into.
+
+★ NO ACCOUNT. NO TELEMETRY. NOTHING COLLECTED.
+
+• No sign-up, no login, no email address
+• No analytics and no telemetry of any kind
+• Your browsing history is never collected, transmitted or stored
+• The extension makes no network requests at all
+
+Full privacy policy: https://ad-interceptor.pages.dev/privacy-policy
+
+★ YOU STAY IN CONTROL
+
+Pause on this site — one tap turns blocking off for the site you're on, without touching your settings anywhere else. Some sites genuinely break under aggressive blocking; this is the escape hatch.
+
+Master switch — off means off, instantly, everywhere.
+
+A live counter — see how many requests were blocked on this page, and how many since you installed it.
+
+★ HONEST LIMITS
+
+Ad blocking is a moving target and no blocker catches everything. Ads served from the same address as the content itself are the hard case for every extension built on Chrome's blocking engine, including this one. If something gets through, the filter lists are updated constantly and each release picks up the latest rules.
+
+★ AVAILABLE IN 20 LANGUAGES
+
+English, Spanish, Portuguese, German, French, Italian, Dutch, Polish, Russian, Ukrainian, Turkish, Arabic, Hindi, Indonesian, Vietnamese, Thai, Japanese, Korean, Simplified Chinese and Traditional Chinese.
+
+★ OPEN ABOUT WHAT IT IS
+
+Ad Interceptor is an independent browser extension. It is not affiliated with Google, Chrome, or any ad network it blocks. Filter lists are used under the Creative Commons Attribution-ShareAlike 3.0 licence and credited in the extension.
+
+Questions or a site that isn't blocking properly? thenightwatchcaptain@gmail.com
 
 ---
 
