@@ -11,7 +11,7 @@
  * WHAT THIS SITE IS FOR
  * Originally it existed only to host the privacy policy at a stable URL, which
  * the Chrome Web Store requires for as long as the item is listed. It now also
- * has to satisfy Paddle's domain review, which requires a product page,
+ * has to satisfy the merchant of record's domain review, which requires a product page,
  * pricing, Terms & Conditions and a Refund Policy reachable by navigation
  * (see store-listing/paddle-verification.md).
  *
@@ -58,8 +58,10 @@ const group = (n) => Number(n).toLocaleString('en-US');
 // as config.js's API_BASE, for the same reason: a placeholder that reaches
 // production is a placeholder nobody checked.
 const REQUIRED = {
-  legalName: 'your full legal name — Paddle wants the sole trader\'s legal name in the Terms',
-  jurisdiction: 'the country whose law governs the Terms, e.g. "India"'
+  legalName: 'your full legal name — the merchant of record wants the sole trader\'s legal name in the Terms',
+  morName: 'the merchant of record (who legally sells to the buyer and appears on their receipt)',
+  jurisdiction: 'the country whose law governs the Terms, e.g. "India"',
+  webStoreUrl: 'the public Chrome Web Store listing — a site that sells a product must show where to get it'
 };
 
 const missing = Object.entries(REQUIRED).filter(([k]) => !String(seller[k] ?? '').trim());
@@ -70,26 +72,45 @@ if (missing.length) {
   process.exit(1);
 }
 
-// Consistency checks on the Paddle config. A sandbox token on a production
-// build takes real money nowhere; a live token on a sandbox build takes real
-// money for real. Both are silent at runtime, so catch them here.
-if (seller.paddleClientToken) {
-  const env = seller.paddleEnvironment;
-  const tok = seller.paddleClientToken;
-  if (env === 'production' && tok.startsWith('test_')) {
-    console.error(`Refusing to build: paddleEnvironment is "production" but the client token is a sandbox token (${tok.slice(0, 5)}...).`);
+// Consistency checks on the Dodo config.
+//
+// These exist because the previous integration shipped a page whose checkout
+// disagreed with its own config more than once. A build that cannot be wrong
+// beats a deploy that has to be remembered.
+{
+  const mode = seller.dodoMode;
+  if (mode !== 'test' && mode !== 'live') {
+    console.error(`dodoMode must be "test" or "live", got ${JSON.stringify(mode)}.`);
     process.exit(1);
   }
-  if (env === 'sandbox' && tok.startsWith('live_')) {
-    console.error('Refusing to build: paddleEnvironment is "sandbox" but the client token is a LIVE token. A real card would be charged.');
+
+  // Selling for real requires a real product id — this is the check that stops
+  // a live buy button pointing at an empty catalogue entry.
+  if (seller.salesEnabled === true) {
+    if (!seller.dodoProductId) {
+      console.error('Refusing to build: salesEnabled is true but dodoProductId is empty.');
+      console.error('A live Get Pro button would link to a checkout for no product.');
+      process.exit(1);
+    }
+    if (mode !== 'live') {
+      console.error(`Refusing to build: salesEnabled is true while dodoMode is "${mode}".`);
+      console.error('That sells to real customers through a test checkout — they pay nothing,');
+      console.error('and the licence they receive is backed by no money.');
+      process.exit(1);
+    }
+  }
+
+  // Deliberately permissive. Dodo does not publish its id formats as a stable
+  // contract, and the last integration hard-coded `txn_[a-z0-9]{26}` from one
+  // vendor's docs — a pattern that rejects Dodo's own mixed-case ids. Validate
+  // the character set and a sane length; do not invent a prefix.
+  if (seller.dodoProductId && !/^[A-Za-z0-9_-]{6,64}$/.test(seller.dodoProductId)) {
+    console.error(`dodoProductId does not look like an identifier: ${JSON.stringify(seller.dodoProductId)}`);
     process.exit(1);
   }
-  if (!['sandbox', 'production'].includes(env)) {
-    console.error(`paddleEnvironment must be "sandbox" or "production", got ${JSON.stringify(env)}.`);
-    process.exit(1);
-  }
-  if (!/^pri_[a-z0-9]{26}$/.test(seller.paddlePriceId ?? '')) {
-    console.error(`paddlePriceId does not look like a Paddle price id: ${JSON.stringify(seller.paddlePriceId)}`);
+
+  if (!/^https:\/\/[a-z0-9.-]+\/[a-z]+$/.test(seller.dodoCheckoutBase ?? '')) {
+    console.error(`dodoCheckoutBase is not a plausible checkout base URL: ${JSON.stringify(seller.dodoCheckoutBase)}`);
     process.exit(1);
   }
 }
@@ -101,7 +122,13 @@ const tokens = {
   cosmeticCount: group(counts.cosmeticGeneric),
   // Rendered into the page as a JS boolean, so the checkout can degrade to a
   // "contact us" state rather than throwing when it is not configured yet.
-  checkoutEnabled: Boolean(seller.paddleClientToken && seller.paddlePriceId),
+  checkoutEnabled: Boolean(seller.dodoProductId && seller.dodoCheckoutBase),
+  // The whole static payment link, assembled once here rather than in page JS.
+  // redirect_url brings the buyer back to /pricing, where the success panel
+  // reads ?payment_id= and trades it for the licence key.
+  checkoutUrl: seller.dodoProductId
+    ? `${seller.dodoCheckoutBase}/${seller.dodoProductId}?quantity=1`
+    : '',
   lastUpdated: new Date().toISOString().slice(0, 10)
 };
 
@@ -143,7 +170,7 @@ const problems = [];
 if (!policyHtml.trimStart().startsWith('<!DOCTYPE')) problems.push('privacy policy has no doctype (renders in quirks mode)');
 if (!policyHtml.includes('mailto:')) problems.push('privacy policy has no contact address (Chrome Web Store requires one)');
 
-// Paddle's domain review checks for these by navigation, so a missing file is
+// A merchant-of-record domain review checks for these by navigation, so a missing file is
 // a failed review, not a cosmetic gap.
 // A 404.html matters more than it looks: without one, Cloudflare Pages was
 // answering EVERY unmatched path with 200 and the root document. Before this
@@ -152,45 +179,59 @@ if (!policyHtml.includes('mailto:')) problems.push('privacy policy has no contac
 // the wrong page and no error. A real 404 fails honestly instead.
 for (const required of ['index.html', '404.html', 'pricing.html', 'terms.html', 'refunds.html', 'privacy-policy.html']) {
   if (!pages.includes(required) && required !== 'privacy-policy.html') {
-    problems.push(`missing ${required} — Paddle domain review requires it`);
+    problems.push(`missing ${required} — merchant-of-record domain review requires it`);
   }
 }
 
-// The post-payment receipt view must be handled BEFORE the sandbox purchase
-// gate, which returns early.
+// The post-payment receipt view must be handled BEFORE any gate that returns
+// early.
 //
-// This shipped broken once: the redirect after payment lands on
-// ?recover=<txn> and so carries no ?test=1, the gate fired, printed "Not on
-// sale yet" and returned before the recover handler ran. A paying customer
-// saw a pricing page and no licence key. Ordering inside one <script> is
-// invisible to every other check here, so assert it explicitly.
+// This shipped broken once: the redirect after payment carried no ?test=1, so
+// the sandbox gate fired, printed "Not on sale yet" and returned before the
+// recover handler ran. A paying customer saw a pricing page and no licence
+// key.
+//
+// The sandbox gate is gone with Paddle, but the hazard is NOT — the
+// SALES_ENABLED gate returns early too, and Dodo's redirect lands on
+// ?payment_id=..., which carries no test flag either. Exactly the same bug,
+// one gate along. Ordering inside a single <script> is invisible to every
+// other check here, so assert it explicitly.
 {
   const pricing = await readFile(path.join(OUT, 'pricing.html'), 'utf8');
   const iRecover = pricing.indexOf('A receipt view needs no checkout');
-  const iGate = pricing.indexOf("PADDLE_ENV === 'sandbox' && !testing");
   const iCopy = pricing.indexOf('copyBtn.addEventListener');
   const iDownload = pricing.indexOf('downloadBtn.addEventListener');
 
   const iSales = pricing.indexOf('if (!SALES_ENABLED)');
   if (iSales === -1) problems.push('pricing.html: the SALES_ENABLED gate is missing');
-  else if (iGate > -1 && iSales > iGate) {
-    problems.push('pricing.html: the SALES_ENABLED gate must come BEFORE the sandbox gate');
-  }
   if (seller.salesEnabled === true) {
     console.log('  ⚠  salesEnabled is TRUE — the buy button is live. Only correct if a');
     console.log('     PRO_ENABLED extension build is already published in the store.');
   }
 
   if (iRecover === -1) problems.push('pricing.html: no recover early-return found');
-  if (iGate === -1) problems.push('pricing.html: no sandbox purchase gate found');
-  if (iRecover > -1 && iGate > -1 && iRecover > iGate) {
-    problems.push('pricing.html: the sandbox gate runs BEFORE the ?recover= handler — a paying customer would see no key');
+  if (iRecover > -1 && iSales > -1 && iRecover > iSales) {
+    problems.push('pricing.html: the SALES_ENABLED gate runs BEFORE the receipt handler — a paying customer would see "Not on sale yet" instead of their key');
   }
-  // The key panel's buttons are useless if their listeners sit behind a gate.
+
+  // The redirect back from checkout is the ONLY way a buyer reaches their key
+  // without an email pipeline. If the page stops reading payment_id, every
+  // purchase silently ends on a pricing page.
+  if (!pricing.includes("params.get('payment_id')")) {
+    problems.push('pricing.html: the post-checkout ?payment_id= handler is missing');
+  }
+
+  // The claim "no third-party resources" is made in the privacy policy and is
+  // the product's main selling point. Assert it rather than trusting it.
+  if (/<script[^>]+src=["']https?:/i.test(pricing)) {
+    problems.push('pricing.html: loads a third-party script — the privacy policy says it loads none');
+  }
+  // The key panel's buttons are useless if their listeners sit behind a gate
+  // that returns early — the receipt view needs them and never reaches past it.
   for (const [name, idx] of [['copy', iCopy], ['download', iDownload]]) {
     if (idx === -1) problems.push(`pricing.html: no ${name} listener found`);
-    else if (iGate > -1 && idx > iGate) {
-      problems.push(`pricing.html: the ${name} listener is registered after the sandbox gate, so it never attaches`);
+    else if (iSales > -1 && idx > iSales) {
+      problems.push(`pricing.html: the ${name} listener is registered after the SALES_ENABLED gate, so it never attaches`);
     }
   }
 }
@@ -212,7 +253,8 @@ console.log(`  seller       : ${seller.legalName} (${seller.jurisdiction})`);
 console.log(`  Pro price    : $${seller.priceUSD}/yr, ${seller.deviceLimit} devices`);
 console.log(`  refund window: ${seller.refundDays} days`);
 console.log(`  rule counts  : ${group(counts.freeNetwork)} network, ${group(counts.cosmeticGeneric)} cosmetic (built ${counts.builtAt})`);
-console.log(`  checkout     : ${tokens.checkoutEnabled ? `${seller.paddleEnvironment} (${seller.paddlePriceId})` : 'NOT configured'}`);
+console.log(`  checkout     : ${tokens.checkoutEnabled ? `${seller.dodoMode} (${seller.dodoProductId})` : 'NOT configured'}`);
+console.log(`  merchant     : ${seller.morName}`);
 console.log(`  licence API  : ${seller.apiBase || 'NOT set — keys must be issued by hand'}`);
 
 if (problems.length) {
@@ -228,18 +270,16 @@ console.log('     change the Chrome Web Store Privacy policy field to');
 console.log('     https://ad-interceptor.pages.dev/privacy-policy — the root is now');
 console.log('     the landing page. Update the store field first, then deploy.');
 console.log('');
-if (seller.paddleEnvironment === 'production') {
+if (seller.dodoMode === 'live' && seller.salesEnabled !== true) {
+  console.log('');
   console.log('  ############################################################');
-  console.log('  #  PRODUCTION Paddle config staged.                        #');
+  console.log('  #  LIVE checkout config staged, sales still OFF.           #');
   console.log('  #                                                          #');
-  console.log('  #  Do NOT deploy until BOTH are true:                      #');
-  console.log('  #    - the checkout domain is APPROVED for live            #');
-  console.log('  #      (Paddle > Checkout > Website approval)              #');
-  console.log('  #    - account verification has passed                     #');
-  console.log('  #                                                          #');
-  console.log('  #  Deploying early puts a live checkout on an unapproved    #');
-  console.log('  #  domain: Paddle.js fails to load and every visitor who    #');
-  console.log('  #  clicks Get Pro sees "Something went wrong".              #');
+  console.log('  #  salesEnabled is false, so the Get Pro button renders as  #');
+  console.log('  #  "Not on sale yet". That is correct until a PRO_ENABLED   #');
+  console.log('  #  build is PUBLISHED in the Chrome Web Store — selling      #');
+  console.log('  #  before then hands buyers a key the shipped extension     #');
+  console.log('  #  cannot activate.                                         #');
   console.log('  ############################################################');
   console.log('');
 }

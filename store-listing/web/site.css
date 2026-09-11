@@ -259,6 +259,23 @@ footer p { margin: 0 0 6px; }
 .procta:hover { filter: brightness(1.08); text-decoration: none; }
 .procta:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
+.install { margin: 26px 0 30px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+
+.installcta {
+  display: inline-block;
+  padding: 13px 26px;
+  font-weight: 600;
+  font-size: 17px;
+  color: #fff;
+  background: var(--accent);
+  border-radius: 10px;
+  text-decoration: none;
+}
+
+.installcta:hover { filter: brightness(1.08); text-decoration: none; }
+.installcta:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.install-note { font-size: 13px; color: var(--text-muted); }
+
 /* ---------- wide-page layout ---------- */
 /* Prose still gets a readable measure inside a wide container — widening the
    container is not a licence to run body text to 1100px. Only things that

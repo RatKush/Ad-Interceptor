@@ -22,7 +22,7 @@ worth building properly.
 |---|---|---|---|
 | `POST` | `/v1/license/validate` | none (rate limited) | `{key, version, installId}` → `{valid, plan, expiresAt, reason?}` |
 | `GET`  | `/v1/filters/latest` | `Bearer <licence key>` | the Pro filter set, with ETag |
-| `POST` | `/v1/paddle/webhook` | Paddle signature | issue / update / revoke keys |
+| `POST` | `/v1/dodo/webhook` | Dodo signature | issue / update / revoke keys |
 | `POST` | `/v1/admin/filters` | `Bearer <ADMIN_TOKEN>` | publish a filter build |
 | `POST` | `/v1/admin/license` | `Bearer <ADMIN_TOKEN>` | issue a key by hand (support, comps) |
 | `GET`  | `/health` | none | liveness |
@@ -50,7 +50,7 @@ npm run schema
 # 4. Secrets
 openssl rand -hex 32                        # use this as ADMIN_TOKEN
 npx wrangler secret put ADMIN_TOKEN
-npx wrangler secret put PADDLE_WEBHOOK_SECRET   # from Paddle → Notifications
+npx wrangler secret put DODO_WEBHOOK_SECRET     # from Dodo → Developer → Webhooks
 
 # 5. Deploy — note the URL it prints
 npm run deploy
@@ -67,30 +67,54 @@ Then, back in the extension root:
 3. Only now flip `PRO_ENABLED = true`. `scripts/check-pro-config.mjs` blocks
    the package if `API_BASE` is unset or still a placeholder.
 
-## Paddle setup
+## Dodo setup
 
-In Paddle → Developer tools → Notifications, add a destination pointing at
-`https://<your-worker>/v1/paddle/webhook` and subscribe to:
+> Moved here from Paddle on 2026-09-12. Paddle refused the account on
+> 2026-09-10 because ad blockers fall outside its Acceptable Use Policy. The
+> old `/v1/paddle/webhook` path now returns **410 Gone** rather than 404, so a
+> stray delivery is diagnosable instead of looking like a network fault.
 
-- `subscription.created`, `subscription.activated` — issue a key
-- `subscription.updated`, `subscription.resumed` — extend `expires_at`
-- `subscription.canceled`, `subscription.paused` — access runs to period end
-- `subscription.past_due` — mark, do not revoke
-- `adjustment.created` — refund or chargeback, revoke immediately
-- `transaction.completed` — one-off purchases
+In Dodo → Developer → Webhooks, add an endpoint pointing at
+`https://<your-worker>/v1/dodo/webhook` and subscribe to:
 
-Copy that destination's secret into `PADDLE_WEBHOOK_SECRET`.
+- `subscription.active`, `subscription.renewed`, `payment.succeeded` — issue a
+  key, and on renewal extend `expires_at`
+- `subscription.updated`, `subscription.unpaused` — restore access, move expiry
+- `subscription.cancelled`, `subscription.expired` — access runs to period end
+- `subscription.past_due`, `on_hold`, `paused`, `failed` — mark, do not revoke
+- `refund.succeeded` — revoke immediately
+- `dispute.*` — chargeback, revoke immediately
 
-**Key delivery is not built here.** The webhook mints the key and stores it;
-getting it to the buyer is a separate step (Paddle's post-purchase workflow, or
-a fulfilment email). Until that exists, use `/v1/admin/license` to issue keys
-manually — which is fine for the first handful of customers and worth doing
-deliberately, because early buyers are the ones worth talking to anyway.
+Copy that endpoint's signing secret into `DODO_WEBHOOK_SECRET`. It looks like
+`whsec_<base64>` and the **bytes behind the base64 are the key** — see below.
 
-## Paddle's delivery contract
+`DODO_WEBHOOK_SECRET_TEST` is an optional second slot so test and live
+endpoints can both be accepted, and so a secret can be rotated without a
+window where deliveries fail.
 
-Every choice below follows from how Paddle actually delivers, confirmed against
-Paddle's own integration skill:
+**Key delivery** now has two paths: the buyer is redirected back to
+`/pricing?payment_id=...` and the page trades that for the key, and the email
+in `mail.js` sends it (needs a domain). `/v1/admin/license` still issues keys
+by hand.
+
+## Dodo's delivery contract
+
+Every choice below follows from how the provider actually delivers. Three
+differ from Paddle in ways that fail SILENTLY if assumed:
+
+- **The signing secret is base64.** `whsec_<base64>` — decode to bytes before
+  using it as the HMAC key. Using the string verifies nothing and rejects every
+  event.
+- **The signed content is `id.timestamp.body`**, dot-separated, with the
+  webhook id included. Paddle signed `timestamp:body`.
+- **The event id is the `webhook-id` HEADER**, not a body field. The dedup
+  ledger keys on it; reading `event.event_id` yields undefined, every event
+  looks new, and a retry re-mints a licence. `extractSubject` takes the id as
+  an argument so it cannot be forgotten silently.
+- **`cancelled_at` has two Ls.** Paddle used `canceled_at`. Reading the
+  American spelling returns undefined forever.
+
+Verified by `node test/dodo-signature.mjs` (31 assertions) and the e2e suite.
 
 - **Only a 2xx within 5 seconds counts as delivered.** Every other response —
   400, 401, 500, a redirect, a timeout — is a failed delivery and gets retried.
@@ -112,17 +136,18 @@ Paddle's own integration skill:
   else; it is attached to no payment credential. Storing it plainly makes "I
   lost my key" answerable. A DB leak lets people use Pro free — the same
   outcome as editing `isPro()` locally, so it buys an attacker nothing.
-- **Cancelled ≠ revoked.** Paddle cancels at period end, so `canceled` keeps
+- **Cancelled ≠ revoked.** Cancellation takes effect at period end, so `canceled` keeps
   working until `expires_at`. Only refunds and chargebacks (`revoked`) cut
   access immediately.
-- **Webhooks are idempotent.** Paddle sends both `subscription.created` and
+- **Webhooks are idempotent.** Dodo sends both `subscription.active` and
   `subscription.activated` for one purchase and retries any non-2xx, so
   `webhook_events` dedupes by `event_id` and key minting dedupes by
-  `paddle_subscription_id`. Duplicates return 200, or Paddle retries forever.
+  `(provider, provider_subscription_id)`. Duplicates return 200, or Dodo
+  retries forever.
 - **The ledger row is written LAST, after the event has been acted on.** This
   ordering is load-bearing and was originally wrong. Recording first means a
-  throw mid-processing returns 500, Paddle retries, the retry hits the dedup
-  check and receives 200/duplicate — so Paddle marks it delivered and stops,
+  throw mid-processing returns 500, Dodo retries, the retry hits the dedup
+  check and receives 200/duplicate — so Dodo marks it delivered and stops,
   leaving a paying customer with no key and nothing reporting a failure.
   Recording last turns that same crash into a replay, which is safe because
   every handler is idempotent.

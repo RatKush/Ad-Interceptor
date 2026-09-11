@@ -117,9 +117,13 @@
 
     <div class="plan is-pro">
       <p class="plan-name">Pro</p>
-      <!-- Rendered with the USD price so the page is meaningful without JS and
-           to search engines; Paddle.PricePreview replaces it with the visitor's
-           own currency once it resolves (~200-500ms). -->
+      <!-- Always USD. Paddle.js exposed a client-side PricePreview that
+           rewrote this into the visitor's own currency; Dodo has no browser
+           equivalent, and fetching a quote server-side would put a third-party
+           request back on the page for a cosmetic gain. Dodo's Adaptive
+           Currency still converts at CHECKOUT, so the buyer pays in their own
+           money — the note below says so rather than letting the switch
+           surprise them. -->
       <p class="plan-price" id="proPrice">${{priceUSD}}</p>
       <p class="plan-per">per year, up to {{deviceLimit}} devices</p>
       <p class="plan-tax" id="proTax" hidden></p>
@@ -131,12 +135,13 @@
       </ul>
 
       <button class="buy" id="buyPro" type="button">Get Pro</button>
-      <p class="buy-note" id="buyNote">Secure checkout by Paddle. Cancel any time.</p>
+      <p class="buy-note" id="buyNote">Charged in your local currency at checkout. Cancel any time.</p>
     </div>
   </div>
 
-  <!-- Shown after checkout completes. Paddle hands the transaction id to this
-       page, which trades it for the licence key at the licence API. -->
+  <!-- Shown after checkout completes. Dodo redirects back here with
+       ?payment_id=...&status=succeeded, and the page trades that id for the
+       licence key at the licence API. -->
   <div class="keybox" id="keyBox" hidden>
     <h2 id="keyTitle">Payment received</h2>
     <p id="keyStatus">Issuing your licence key…</p>
@@ -212,7 +217,7 @@
   <section>
     <h2>Billing, tax and refunds</h2>
     <p>
-      Payments are processed by <strong>Paddle</strong>, which acts as the
+      Payments are processed by <strong>{{morName}}</strong>, which acts as the
       merchant of record and handles VAT and sales tax where it applies. Any tax
       due is shown at checkout before you pay, so the price you confirm is the
       price you are charged.
@@ -226,21 +231,19 @@
 
 <footer>
   <p><strong>{{legalName}}</strong>, trading as Ad Interceptor.</p>
-  <p>Payments are processed by Paddle.com Market Ltd, which acts as the merchant of record for all Ad Interceptor Pro purchases.</p>
+  <p>Payments are processed by {{morName}}, which acts as the merchant of record for all Ad Interceptor Pro purchases.</p>
   <p><a href="/pricing">Pricing</a> &middot; <a href="/terms">Terms &amp; Conditions</a> &middot; <a href="/refunds">Refund Policy</a> &middot; <a href="/privacy-policy">Privacy Policy</a> &middot; <a href="mailto:{{contactEmail}}">{{contactEmail}}</a></p>
 </footer>
-<!-- Paddle.js is the ONLY third-party resource anywhere on this site, and it
-     loads on this page alone. Paddle restricts fully-hosted checkout links on
-     live accounts to approved mobile app companies, so overlay checkout is the
-     only route available to a browser extension. The privacy policy discloses
-     that Paddle receives data at checkout. -->
-<script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
+<!-- This site now loads NO third-party resource of any kind.
+     The previous integration pulled Paddle.js in on this page for its overlay
+     checkout, which was the single exception to the "contacts no one" claim
+     the product is sold on. Dodo supports a plain hosted payment link, so the
+     Get Pro button is an ordinary navigation: nothing runs here on anyone
+     else's behalf, and the privacy policy no longer needs an exception. -->
 <script>
   (function () {
     var CHECKOUT_ENABLED = {{checkoutEnabled}};
-    var PADDLE_ENV = "{{paddleEnvironment}}";
-    var CLIENT_TOKEN = "{{paddleClientToken}}";
-    var PRICE_ID = "{{paddlePriceId}}";
+    var CHECKOUT_URL = "{{checkoutUrl}}";
     var API_BASE = "{{apiBase}}";
     var SALES_ENABLED = {{salesEnabled}};
 
@@ -306,7 +309,7 @@
         'Purchased: ' + new Date().toISOString().slice(0, 10),
         'Support: {{contactEmail}}',
         '',
-        'Payments are handled by Paddle, our merchant of record.'
+        'Payments are handled by {{morName}}, our merchant of record.'
       ].filter(function (l) { return l !== ''; }).join('\n');
 
       var blob = new Blob([lines], { type: 'text/plain;charset=utf-8' });
@@ -324,12 +327,30 @@
       setTimeout(function () { downloadBtn.textContent = 'Download as .txt'; }, 1800);
     });
 
-    // ?recover=txn_... re-opens a previous purchase's key without any email
-    // infrastructure. The transaction id is unguessable and Paddle discloses
-    // it only to the buyer, which is the same basis on which the panel showed
-    // the key in the first place.
-    var recover = new URLSearchParams(location.search).get('recover');
-    if (recover && /^txn_[a-z0-9]{26}$/.test(recover)) {
+    // Two ways to land on a key:
+    //   ?payment_id=pay_...&status=succeeded  — Dodo's post-checkout redirect
+    //   ?recover=pay_...                      — a bookmark the buyer kept
+    //
+    // The payment id is unguessable and disclosed only to the purchasing
+    // browser, which is the same basis on which the panel shows the key at all.
+    //
+    // The pattern is deliberately loose. It was `^txn_[a-z0-9]{26}$`, copied
+    // from Paddle's docs — which rejects Dodo's own ids outright, since they
+    // are MIXED CASE (pay_ts2ySpzg07phGeBZqePbH). A receipt page that silently
+    // refuses to recognise a real receipt is the worst version of this bug, so
+    // validate shape, not vendor trivia.
+    var ID_RE = /^[A-Za-z0-9_-]{8,80}$/;
+    var params = new URLSearchParams(location.search);
+
+    // Dodo appends status= to the redirect. Only a succeeded payment should
+    // open the key panel; a cancelled or failed one must leave the page alone
+    // so the buyer can simply try again.
+    var redirected = params.get('payment_id');
+    var redirectStatus = params.get('status');
+    var recover = params.get('recover') ||
+      (redirected && (!redirectStatus || redirectStatus === 'succeeded') ? redirected : null);
+
+    if (recover && ID_RE.test(recover)) {
       keyBox.hidden = false;
       document.getElementById('keyTitle').textContent = 'Thank you — here is your licence key';
       keyStatus.textContent = 'Looking up your purchase…';
@@ -342,125 +363,42 @@
 
       collectKey(recover, 0);
 
-      // A receipt view needs no checkout, no price preview and no Paddle.js.
-      // Returning here also means the sandbox gate below can never overwrite
-      // what we just put on screen.
+      // A receipt view needs no checkout. Returning here also means the sales
+      // gate below can never overwrite what we just put on screen.
       return;
     }
 
-    // Sales are OFF until explicitly enabled, regardless of environment.
+    // Sales are OFF until explicitly enabled, regardless of mode.
     //
     // This exists because the previous gate keyed off sandbox mode — and so
     // stopped protecting anything the instant the config moved to production,
     // while the published extension was still free-only. Selling then would
     // hand buyers a licence key the store build cannot activate: paid, and
     // nothing to show for it. Flip salesEnabled only once a PRO_ENABLED build
-    // is live in the Chrome Web Store.
+    // is PUBLISHED in the Chrome Web Store.
     if (!SALES_ENABLED) {
       buy.disabled = true;
       buy.textContent = 'Not on sale yet';
       buyNote.textContent = 'Pro is in final testing. Check back shortly.';
-      showLocalPriceWhenReady();
       return;
     }
 
-    // While the account is in SANDBOX, hide the buy button from the public.
-    //
-    // A sandbox checkout completes without taking money but still fires real
-    // webhooks, so a passer-by could mint themselves a working licence and
-    // real access to the Pro filter feed. Requiring ?test=1 keeps the page
-    // publicly readable — which is what Paddle's domain review needs — while
-    // making the payment path deliberate rather than available.
-    //
-    // In production this gate disappears and the button is simply live.
-    var testing = new URLSearchParams(location.search).has('test');
-    var ptxn = new URLSearchParams(location.search).has('_ptxn');
-    if (PADDLE_ENV === 'sandbox' && !testing && !ptxn) {
-      buy.disabled = true;
-      buy.textContent = 'Not on sale yet';
-      buyNote.textContent = 'Pro is in final testing. Check back shortly.';
-      showLocalPriceWhenReady();
-      return;
-    }
-
-    // Degrade honestly rather than throwing: an unconfigured or failed-to-load
-    // checkout should say so, not present a button that does nothing.
-    if (!CHECKOUT_ENABLED || typeof Paddle === 'undefined') {
+    // Degrade honestly rather than throwing: an unconfigured checkout should
+    // say so, not present a button that goes nowhere.
+    if (!CHECKOUT_ENABLED || !CHECKOUT_URL) {
       buy.disabled = true;
       buy.textContent = 'Pro is not on sale yet';
-      buyNote.textContent = typeof Paddle === 'undefined'
-        ? 'Checkout could not load. Please try again, or email us.'
-        : 'Pro is in final testing. Check back shortly.';
+      buyNote.textContent = 'Pro is in final testing. Check back shortly.';
       return;
-    }
-
-    if (PADDLE_ENV === 'sandbox') {
-      Paddle.Environment.set('sandbox');
-      buyNote.textContent = 'TEST MODE — no real payment is taken.';
-    }
-
-    // Initialize with the token only, so PricePreview works even when the
-    // buy button is gated off. Checkout settings are applied below.
-    function showLocalPriceWhenReady() {
-      try {
-        if (PADDLE_ENV === 'sandbox') Paddle.Environment.set('sandbox');
-        Paddle.Initialize({ token: CLIENT_TOKEN });
-        showLocalPrice();
-      } catch (e) { /* leave the rendered USD figure */ }
-    }
-
-    /**
-     * Show the visitor's actual price, not a hardcoded dollar figure.
-     *
-     * This page previously said "$14.99" to everyone while checkout charged
-     * ₹499 in India, €14.99 in the EU and ¥2,200 in Japan. A page that
-     * disagrees with its own checkout reads as broken even when the surprise
-     * is a pleasant one.
-     *
-     * Note the casing: Paddle.js takes camelCase (priceId, formattedTotals)
-     * while the REST API uses snake_case (price_id, formatted_totals). Mixing
-     * them silently yields undefined.
-     *
-     * No `address` is passed, so Paddle infers the country from the visitor's
-     * IP — the same inference checkout will make, which is what keeps the two
-     * in agreement.
-     */
-    function showLocalPrice() {
-      var priceEl = document.getElementById('proPrice');
-      var taxEl = document.getElementById('proTax');
-
-      Paddle.PricePreview({ items: [{ priceId: PRICE_ID, quantity: 1 }] })
-        .then(function (res) {
-          var item = res && res.data && res.data.details && res.data.details.lineItems &&
-                     res.data.details.lineItems[0];
-          if (!item || !item.formattedTotals) return;
-
-          // Already a locale-formatted string with the symbol and grouping.
-          // Reformatting it produces "$$9.99" or throws — use it verbatim.
-          priceEl.textContent = item.formattedTotals.total;
-
-          // Most markets are tax-inclusive, so the figure above IS the final
-          // price; the US and Canada add tax at checkout. Saying which is
-          // happening avoids a nasty surprise on the payment screen.
-          var tax = item.totals && item.totals.tax;
-          var inclusive = tax && tax !== '0';
-          taxEl.textContent = inclusive
-            ? 'Includes VAT/GST. This is the total you pay.'
-            : 'Sales tax, where it applies, is added at checkout.';
-          taxEl.hidden = false;
-        })
-        .catch(function () {
-          // Leave the rendered USD figure in place. A stale-but-plausible
-          // price beats an empty element or a spinner that never resolves.
-        });
     }
 
     /**
      * Trade the transaction id for the licence key.
      *
-     * The key is minted by the Paddle webhook, which races this page: the
-     * buyer's browser often arrives first. So poll, with a ceiling. A 404 with
-     * retryable means "not yet"; anything else is final.
+     * The key is minted by the Dodo webhook, which races this page: the
+     * buyer's browser is redirected back before the webhook always lands. So
+     * poll, with a ceiling. A 404 with retryable means "not yet"; anything
+     * else is final.
      */
     function collectKey(transactionId, attempt) {
       attempt = attempt || 0;
@@ -489,8 +427,8 @@
 
             // A bookmarkable way back to this key. It is not a substitute for
             // saving the key, but it turns "I closed the tab" from a support
-            // ticket into a link the buyer already has — the same transaction
-            // id appears on Paddle's receipt.
+            // ticket into a link the buyer already has — the same payment id
+            // appears on the merchant of record's receipt.
             if (currentTxn) {
               var url = location.origin + '/pricing?recover=' + encodeURIComponent(currentTxn);
               keyRecover.innerHTML = 'Lost it? Bookmark this page to fetch it again: ' +
@@ -510,77 +448,27 @@
         });
     }
 
-    Paddle.Initialize({
-      token: CLIENT_TOKEN,
-      // Required for Paddle Retain to work correctly on live accounts.
-      //
-      // Deliberately EMPTY. Paddle's guidance is to pass the signed-in
-      // customer's Paddle customer id (`ctm_...`) — but this is an anonymous
-      // marketing page: there is no account system, no login, and no way to
-      // know who is looking before they reach checkout. Paddle's own docs
-      // cover exactly this case: "Where you don't know the Paddle ID for a
-      // customer, you can pass an empty object to pwCustomer."
-      //
-      // It must never be an internal id or an email address — Retain only
-      // accepts a Paddle customer id, and anything else is silently useless.
-      // If sign-in is ever added, pass { id: <the ctm_ id from the licence
-      // row's paddle_customer_id> } here. Retain is also live-only; it is not
-      // loaded for sandbox accounts at all.
-      pwCustomer: {},
-      // Pin the overlay's appearance instead of letting Paddle infer it.
-      // Without this it can pick up the visitor's dark-mode preference while
-      // the site itself is dark-themed, and a control that renders dark-on-dark
-      // reads as a missing button rather than a styling glitch. Explicit beats
-      // inherited for anything on the payment path.
-      checkout: {
-        settings: {
-          displayMode: 'overlay',
-          theme: 'light'
-        }
-      },
-      eventCallback: function (event) {
-        if (event.name === 'checkout.completed') {
-          keyBox.hidden = false;
-          buy.disabled = true;
-          buy.textContent = 'Purchased';
-
-          // Paddle's own success screen says "we have emailed you details of
-          // your order" — which is true of the receipt but says nothing about
-          // the licence key sitting on the page BEHIND the overlay. Its copy
-          // is Paddle's UI and cannot be changed, and a buyer who closes the
-          // whole tab instead of the overlay loses the key.
-          //
-          // So navigate out of the overlay ourselves. The transaction id is
-          // not appended to successUrl automatically; it comes off this event,
-          // which is why this is done here rather than with settings.successUrl.
-          // The short delay lets the buyer actually register that payment
-          // succeeded before the page changes under them.
-          var txn = event.data && (event.data.transaction_id || event.data.id);
-          if (txn) {
-            keyStatus.textContent = 'Taking you to your licence key…';
-            collectKey(txn, 0);
-            setTimeout(function () {
-              // replace(), not assign(): Back should not return to a spent
-              // checkout that no longer has anything to pay for.
-              location.replace(location.pathname + '?recover=' + encodeURIComponent(txn));
-            }, 2600);
-          } else {
-            keyBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            keyStatus.textContent = 'Your payment went through. Email us and we will send your licence key straight away.';
-          }
-        }
-      }
-    });
-
-    showLocalPrice();
-
     buy.addEventListener('click', function () {
-      // Same priceId that PricePreview quoted, so checkout cannot disagree
-      // with the page.
-      Paddle.Checkout.open({ items: [{ priceId: PRICE_ID, quantity: 1 }] });
+      // A plain navigation to the hosted checkout. No SDK, no overlay, no
+      // third-party script on this page.
+      //
+      // redirect_url is built here rather than baked into the config so it
+      // always matches the origin actually being served — a hardcoded one
+      // sends anyone testing on a preview deployment back to production, where
+      // their payment id means nothing and the key never appears.
+      //
+      // The buyer comes back to /pricing?payment_id=...&status=succeeded,
+      // which the handler at the top of this function turns into a key.
+      var back = location.origin + location.pathname;
+      var url = CHECKOUT_URL + '&redirect_url=' + encodeURIComponent(back);
+
+      buy.disabled = true;
+      buy.textContent = 'Opening checkout…';
+
+      // assign(), not replace(): Back from a checkout the buyer abandoned
+      // should return to this page rather than skipping past it.
+      location.assign(url);
     });
-
-
 
   })();
 </script>

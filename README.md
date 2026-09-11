@@ -60,8 +60,14 @@ why the free build swaps the module rather than dropping it.
 5. Update the CWS data disclosure to declare **Authentication information**,
    and restore the held-back Pro block in `store-listing/description.md`
 
-Payment is planned via **Paddle** (merchant of record — they handle global
-VAT/sales tax as the legal seller). The licence server does not exist yet.
+Payment goes through **Dodo Payments** (merchant of record — they handle global
+VAT/sales tax as the legal seller, and generate India-format FIRA for GST export
+compliance). The licence server is built and deployed; see `backend/`.
+
+Paddle was the original choice and refused the account on 2026-09-10, because
+ad blockers fall outside its Acceptable Use Policy. Note for anyone adding a
+provider here: **check the AUP for the product category before writing a line of
+integration code.** That check costs one email and would have saved a week.
 
 What Pro can and cannot enforce:
 

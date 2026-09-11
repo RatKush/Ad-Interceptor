@@ -26,7 +26,7 @@
 
   <dl class="facts">
     <div class="fact"><dt>Provider</dt><dd>{{legalName}}</dd></div>
-    <div class="fact"><dt>Seller of record</dt><dd>Paddle</dd></div>
+    <div class="fact"><dt>Seller of record</dt><dd>{{morName}}</dd></div>
     <div class="fact"><dt>Governing law</dt><dd>{{jurisdiction}}</dd></div>
   </dl>
 
@@ -39,11 +39,11 @@
       <a href="mailto:{{contactEmail}}">{{contactEmail}}</a>.
     </p>
     <p>
-      Purchases of Ad Interceptor Pro are sold by <strong>Paddle.com Market
-      Ltd</strong> ("Paddle") acting as the merchant of record. Paddle is the
+      Purchases of Ad Interceptor Pro are sold by <strong>{{morName}}</strong>
+      acting as the merchant of record. {{morName}} is the
       seller for that transaction, issues your invoice, and handles VAT and
-      sales tax where it applies. Paddle's own
-      <a href="https://www.paddle.com/legal/checkout-buyer-terms" rel="noopener">buyer
+      sales tax where it applies. {{morName}}'s own
+      <a href="{{morBuyerTermsUrl}}" rel="noopener">buyer
       terms</a> apply to the payment itself, in addition to these terms which
       govern your use of the software.
     </p>
@@ -175,7 +175,7 @@
 
 <footer>
   <p><strong>{{legalName}}</strong>, trading as Ad Interceptor.</p>
-  <p>Payments are processed by Paddle.com Market Ltd, which acts as the merchant of record for all Ad Interceptor Pro purchases.</p>
+  <p>Payments are processed by {{morName}}, which acts as the merchant of record for all Ad Interceptor Pro purchases.</p>
   <p><a href="/pricing">Pricing</a> &middot; <a href="/terms">Terms &amp; Conditions</a> &middot; <a href="/refunds">Refund Policy</a> &middot; <a href="/privacy-policy">Privacy Policy</a> &middot; <a href="mailto:{{contactEmail}}">{{contactEmail}}</a></p>
 </footer>
 </body>

@@ -20,13 +20,18 @@ CREATE TABLE IF NOT EXISTS licenses (
   expires_at         INTEGER,                          -- epoch ms; NULL = perpetual
   activation_limit   INTEGER NOT NULL DEFAULT 3,
   email              TEXT,
-  paddle_customer_id     TEXT,
-  paddle_subscription_id TEXT,
-  paddle_transaction_id  TEXT,
+  -- Provider-neutral on purpose. These held `paddle_` names until 2026-09-10,
+  -- when Paddle refused the account over its ad-blocker policy and the whole
+  -- integration moved to Dodo Payments. Nothing about an opaque vendor id is
+  -- vendor-specific, so the vendor lives in one column instead of five names.
+  provider               TEXT NOT NULL DEFAULT 'dodo',
+  provider_customer_id     TEXT,
+  provider_subscription_id TEXT,
+  provider_payment_id      TEXT,
   created_at         INTEGER NOT NULL,
   updated_at         INTEGER NOT NULL,
 
-  -- Set once the "here is your key" email is accepted for delivery. Paddle
+  -- Set once the "here is your key" email is accepted for delivery. Dodo
   -- delivers several events per purchase and retries them, so the send path
   -- runs repeatedly for one sale; without this marker the buyer receives
   -- duplicate key emails, which reads as a compromised account.
@@ -37,16 +42,20 @@ CREATE TABLE IF NOT EXISTS licenses (
 -- UNIQUE, not just indexed. This is a correctness constraint, not a
 -- performance one.
 --
--- Paddle delivers subscription.created, subscription.activated and
--- transaction.completed for a single purchase CONCURRENTLY. Application-level
+-- A provider delivers several events for a single purchase CONCURRENTLY
+-- (Dodo: subscription.active and payment.succeeded). Application-level
 -- "SELECT then INSERT if absent" dedup loses that race: two handlers both see
 -- no row and both insert, minting two valid licences for one payment. That
 -- happened on the first real sandbox purchase (2026-09-08) and sequential
 -- tests could never have caught it.
 --
+-- Composite so two providers can never collide on an opaque id string.
 -- SQLite treats NULLs as distinct in a unique index, so admin-issued keys and
--- one-off transactions (both NULL here) are unaffected.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_licenses_subscription ON licenses(paddle_subscription_id);
+-- one-off payments (both NULL here) are unaffected.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_licenses_subscription
+  ON licenses(provider, provider_subscription_id);
+CREATE INDEX IF NOT EXISTS idx_licenses_provider_customer
+  ON licenses(provider, provider_customer_id);
 CREATE INDEX IF NOT EXISTS idx_licenses_email        ON licenses(email);
 
 -- One row per (key, install). This is what makes activation limits real:
@@ -64,21 +73,26 @@ CREATE TABLE IF NOT EXISTS activations (
 
 CREATE INDEX IF NOT EXISTS idx_activations_last_seen ON activations(last_seen);
 
--- Buyers, keyed by Paddle's customer id.
+-- Buyers, keyed by the provider's customer id.
 --
--- Exists because Paddle only ever sends the email on customer.created /
--- customer.updated, and those can arrive BEFORE the subscription they belong
--- to. Backfilling licences directly from that event would update zero rows.
--- Keeping customers separately makes event order irrelevant.
+-- This existed because Paddle sent the email ONLY on customer.created /
+-- customer.updated, which could arrive before the subscription they belonged
+-- to. Dodo puts `customer.email` on every payload, so the table is no longer
+-- load-bearing for address capture — it is kept as the record of who bought
+-- what, and because key recovery looks buyers up by email.
 CREATE TABLE IF NOT EXISTS customers (
-  paddle_customer_id TEXT PRIMARY KEY,
-  email              TEXT,
-  updated_at         INTEGER NOT NULL
+  provider             TEXT NOT NULL DEFAULT 'dodo',
+  provider_customer_id TEXT PRIMARY KEY,
+  email                TEXT,
+  updated_at           INTEGER NOT NULL
 );
 
--- Every webhook Paddle delivers, recorded before it is acted on. Paddle
--- retries on non-2xx, so events must be idempotent; this table is how we
+-- Every webhook the provider delivers, recorded AFTER it is acted on (see the
+-- ordering note in index.js — writing it first loses paid events). Providers
+-- retry on non-2xx, so events must be idempotent; this table is how we
 -- recognise a replay. It is also the only audit trail of why a key changed.
+--
+-- For Dodo the event id is the `webhook-id` HEADER, not a body field.
 CREATE TABLE IF NOT EXISTS webhook_events (
   event_id    TEXT PRIMARY KEY,
   event_type  TEXT NOT NULL,

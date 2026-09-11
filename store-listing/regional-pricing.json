@@ -1,0 +1,38 @@
+{
+  "//": "Regional price table for Ad Interceptor Pro, provider-neutral.",
+  "//why": "Extracted from scripts/paddle-pricing.mjs on 2026-09-12 when the integration moved to Dodo Payments. The Paddle API plumbing around it was deleted (it lives in git history); this TABLE is product knowledge and outlives any vendor.",
+  "//howToApply": "Dodo calls this 'Localized Pricing' — a fixed price per currency/country, as opposed to 'Adaptive Currency' which just converts the USD base at live FX. Applying 25 overrides by hand is exactly the repetitive work that produces a 100x error nobody notices until a customer complains, so script it against Dodo's API and VERIFY by asking what a buyer would actually be charged rather than trusting the arithmetic.",
+  "//decimalTrap": "Amounts here are in MAJOR units (14.99 = fourteen ninety-nine). Most payment APIs take the LOWEST denomination, where 14.99 becomes 1499. JPY and KRW are ZERO-decimal, so 2200 stays 2200. Getting this wrong does not error — it silently prices 100x off in either direction. `decimals` is explicit on every row so a conversion can never guess.",
+  "//tiers": "par = full price for a high-income market. ppp = reduced against local price levels. These are round numbers chosen to read as deliberate local prices, based on approximate relative price levels, NOT looked-up official PPP tables.",
+  "baseUSD": 14.99,
+  "euroCountries": ["AT","BE","CY","EE","FI","FR","DE","GR","IE","IT","LV","LT","LU","MT","NL","PT","SK","SI","ES","HR"],
+  "prices": [
+    { "cur": "EUR", "amount": 14.99, "decimals": 2, "countries": "euroCountries", "tier": "par" },
+    { "cur": "GBP", "amount": 12.99, "decimals": 2, "countries": ["GB"], "tier": "par" },
+    { "cur": "CHF", "amount": 13.99, "decimals": 2, "countries": ["CH"], "tier": "par" },
+    { "cur": "CAD", "amount": 19.99, "decimals": 2, "countries": ["CA"], "tier": "par" },
+    { "cur": "AUD", "amount": 22.99, "decimals": 2, "countries": ["AU"], "tier": "par" },
+    { "cur": "NZD", "amount": 24.99, "decimals": 2, "countries": ["NZ"], "tier": "par" },
+    { "cur": "SGD", "amount": 19.99, "decimals": 2, "countries": ["SG"], "tier": "par" },
+    { "cur": "HKD", "amount": 115,   "decimals": 2, "countries": ["HK"], "tier": "par" },
+    { "cur": "SEK", "amount": 159,   "decimals": 2, "countries": ["SE"], "tier": "par" },
+    { "cur": "NOK", "amount": 159,   "decimals": 2, "countries": ["NO"], "tier": "par" },
+    { "cur": "DKK", "amount": 105,   "decimals": 2, "countries": ["DK"], "tier": "par" },
+    { "cur": "ILS", "amount": 54,    "decimals": 2, "countries": ["IL"], "tier": "par" },
+    { "cur": "JPY", "amount": 2200,  "decimals": 0, "countries": ["JP"], "tier": "par" },
+    { "cur": "KRW", "amount": 19000, "decimals": 0, "countries": ["KR"], "tier": "par" },
+    { "cur": "TWD", "amount": 469,   "decimals": 2, "countries": ["TW"], "tier": "par" },
+
+    { "cur": "PLN", "amount": 39,    "decimals": 2, "countries": ["PL"], "tier": "ppp" },
+    { "cur": "CZK", "amount": 219,   "decimals": 2, "countries": ["CZ"], "tier": "ppp" },
+    { "cur": "MXN", "amount": 149,   "decimals": 2, "countries": ["MX"], "tier": "ppp" },
+    { "cur": "BRL", "amount": 39,    "decimals": 2, "countries": ["BR"], "tier": "ppp" },
+    { "cur": "ZAR", "amount": 129,   "decimals": 2, "countries": ["ZA"], "tier": "ppp" },
+    { "cur": "THB", "amount": 199,   "decimals": 2, "countries": ["TH"], "tier": "ppp" },
+    { "cur": "CNY", "amount": 45,    "decimals": 2, "countries": ["CN"], "tier": "ppp" },
+    { "cur": "TRY", "amount": 199,   "decimals": 2, "countries": ["TR"], "tier": "ppp" },
+    { "cur": "UAH", "amount": 249,   "decimals": 2, "countries": ["UA"], "tier": "ppp" },
+    { "cur": "INR", "amount": 499,   "decimals": 2, "countries": ["IN"], "tier": "ppp",
+      "//": "Priced to unlock UPI. Under Paddle this needed an INR price for customers in India and a recurring total under 15,000 INR. Dodo is India-based and supports UPI directly, so CONFIRM its own constraints rather than carrying Paddle's forward." }
+  ]
+}

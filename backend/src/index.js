@@ -2,7 +2,7 @@
 //
 //   POST /v1/license/validate   { key, version, installId } -> { valid, plan, expiresAt, reason? }
 //   GET  /v1/filters/latest     Authorization: Bearer <key>  -> { rules: [...], builtAt }
-//   POST /v1/paddle/webhook     Paddle Billing notifications
+//   POST /v1/dodo/webhook       Dodo Payments notifications
 //   POST /v1/admin/filters      Authorization: Bearer <ADMIN_TOKEN>  (publish a filter build)
 //   POST /v1/admin/license      Authorization: Bearer <ADMIN_TOKEN>  (issue a comp/support key)
 //   GET  /health
@@ -17,9 +17,20 @@
 // customers a clean path, and it does not pretend to be DRM.
 
 import { generateKey, normalizeKey } from './keys.js';
-import { verifyAgainstAnySecret, extractSubject } from './paddle.js';
+import {
+  verifyAgainstAnySecret,
+  extractSubject,
+  readWebhookHeaders,
+  GRANTING_EVENTS,
+  SUSPENDING_EVENTS,
+  REVOKING_EVENTS
+} from './dodo.js';
 import { sendLicenceKey } from './mail.js';
-import { checkPaddleSourceIp } from './paddle-ips.js';
+
+// Which payment provider these rows belong to. Stored per row rather than
+// assumed, because this is the SECOND provider: Paddle refused the account on
+// 2026-09-10 over its ad-blocker policy. See migrations/004-provider-neutral.
+const PROVIDER = 'dodo';
 
 const FILTERS_KV_KEY = 'pro-filters:latest';
 const ACTIVATION_TTL_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
@@ -72,8 +83,9 @@ const toEpochMs = (iso) => {
  * Decide whether a key grants Pro right now, and record the activation.
  *
  * A cancelled subscription is deliberately still valid until expires_at:
- * Paddle cancels at period end, and someone who paid for this month keeps
- * this month. Only 'revoked' (refund, chargeback, abuse) kills it immediately.
+ * cancellation takes effect at period end, and someone who paid for this
+ * period keeps it. Only 'revoked' (refund, chargeback, abuse) kills it
+ * immediately.
  */
 async function evaluateKey(env, rawKey, installId, version) {
   const key = normalizeKey(rawKey);
@@ -131,75 +143,96 @@ async function evaluateKey(env, rawKey, installId, version) {
 }
 
 // ---------------------------------------------------------------------------
-// Paddle webhook
+// Dodo Payments webhook
 // ---------------------------------------------------------------------------
 
 async function issueKeyFor(env, subject) {
   const now = Date.now();
 
-  // Idempotency at the subscription level: Paddle sends both
-  // subscription.created and subscription.activated for one purchase, and
-  // retries anything we fail. One subscription must never mint two keys.
+  // Idempotency at the subscription level: Dodo sends subscription.active and
+  // payment.succeeded for one purchase, and retries anything we fail. One
+  // subscription must never mint two keys.
   if (subject.subscriptionId) {
     const existing = await env.DB.prepare(
-      'SELECT key, paddle_transaction_id FROM licenses WHERE paddle_subscription_id = ?'
-    ).bind(subject.subscriptionId).first();
+      `SELECT key, provider_payment_id, expires_at FROM licenses
+        WHERE provider = ? AND provider_subscription_id = ?`
+    ).bind(PROVIDER, subject.subscriptionId).first();
 
     if (existing) {
       // One purchase produces several events and their order is not
-      // guaranteed: subscription.activated carries no transaction id, while
-      // transaction.completed carries both. Whichever lands first mints the
-      // key, so backfill the transaction id when the other one arrives —
+      // guaranteed: subscription.active carries no payment id, while
+      // payment.succeeded carries both. Whichever lands first mints the key,
+      // so backfill the payment id when the other one arrives —
       // /v1/license/by-transaction is how the buyer's browser collects the
       // key, and it can only find the row if this column is populated.
-      if (subject.transactionId && !existing.paddle_transaction_id) {
+      if (subject.transactionId && !existing.provider_payment_id) {
         await env.DB.prepare(
-          'UPDATE licenses SET paddle_transaction_id = ?, updated_at = ? WHERE key = ?'
+          'UPDATE licenses SET provider_payment_id = ?, updated_at = ? WHERE key = ?'
         ).bind(subject.transactionId, now, existing.key).run();
       }
-      // Same for the email, which subscription events often omit entirely.
       if (subject.email) {
         await env.DB.prepare(
           'UPDATE licenses SET email = COALESCE(email, ?), updated_at = ? WHERE key = ?'
         ).bind(subject.email, now, existing.key).run();
       }
+
+      // RENEWALS. `subscription.renewed` arrives every year for a licence that
+      // already exists, so it lands here rather than in the INSERT below. If
+      // this path leaves expires_at alone, the row keeps its ORIGINAL expiry
+      // and every paying customer silently loses Pro one year in, while Dodo
+      // keeps charging them. Under Paddle this was handled by a separate
+      // subscription.updated branch; Dodo folds renewal into the granting
+      // events, so the extension has to happen here.
+      //
+      // Only ever moves the date FORWARD — a late or replayed event must not
+      // shorten access that has already been paid for.
+      const renewedTo = toEpochMs(subject.nextBilledAt);
+      if (renewedTo && (!existing.expires_at || renewedTo > existing.expires_at)) {
+        await env.DB.prepare(
+          `UPDATE licenses SET expires_at = ?, status = 'active', updated_at = ?
+            WHERE key = ?`
+        ).bind(renewedTo, now, existing.key).run();
+      }
       return existing.key;
     }
   }
 
-  // The event almost never carries the email, so fall back to whatever
-  // customer.created already told us. This is the "customer event arrived
-  // first" half of the ordering problem.
+  // Dodo puts customer.email on EVERY payload, so unlike Paddle the address is
+  // normally present already. The customers-table fallback is kept anyway: it
+  // costs one indexed read and covers an event that somehow arrives without
+  // one, which is exactly the case that used to lose a buyer's address.
   let email = subject.email;
   if (!email && subject.customerId) {
     const known = await env.DB.prepare(
-      'SELECT email FROM customers WHERE paddle_customer_id = ?'
+      'SELECT email FROM customers WHERE provider_customer_id = ?'
     ).bind(subject.customerId).first();
     email = known?.email ?? null;
   }
 
   const key = generateKey();
 
-  // ON CONFLICT DO NOTHING against the UNIQUE index on paddle_subscription_id.
+  // ON CONFLICT DO NOTHING against the UNIQUE index on
+  // (provider, provider_subscription_id).
   //
-  // The SELECT above is a fast path, not the guarantee. Paddle delivers
-  // subscription.created, subscription.activated and transaction.completed
-  // CONCURRENTLY, so two handlers can both pass that check and both arrive
-  // here. On the first real sandbox purchase that minted two valid licences
-  // for one payment — a free Pro key nobody bought. Only the database can
-  // arbitrate a race between concurrent writers, so the uniqueness lives
-  // there and this insert is allowed to lose.
+  // The SELECT above is a fast path, not the guarantee. Dodo delivers
+  // subscription.active and payment.succeeded CONCURRENTLY, so two handlers
+  // can both pass that check and both arrive here. Under Paddle that minted
+  // two valid licences for one payment on the first real sandbox purchase — a
+  // free Pro key nobody bought. Only the database can arbitrate a race
+  // between concurrent writers, so uniqueness lives there and this insert is
+  // allowed to lose.
   await env.DB.prepare(
     `INSERT INTO licenses
-       (key, plan, status, expires_at, activation_limit, email,
-        paddle_customer_id, paddle_subscription_id, paddle_transaction_id,
+       (key, plan, status, expires_at, activation_limit, email, provider,
+        provider_customer_id, provider_subscription_id, provider_payment_id,
         created_at, updated_at)
-     VALUES (?, 'pro', 'active', ?, 3, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(paddle_subscription_id) DO NOTHING`
+     VALUES (?, 'pro', 'active', ?, 3, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(provider, provider_subscription_id) DO NOTHING`
   ).bind(
     key,
     toEpochMs(subject.nextBilledAt),
     email,
+    PROVIDER,
     subject.customerId,
     subject.subscriptionId,
     subject.transactionId,
@@ -213,15 +246,16 @@ async function issueKeyFor(env, subject) {
   // stored.
   if (subject.subscriptionId) {
     const winner = await env.DB.prepare(
-      'SELECT key, paddle_transaction_id FROM licenses WHERE paddle_subscription_id = ?'
-    ).bind(subject.subscriptionId).first();
+      `SELECT key, provider_payment_id FROM licenses
+        WHERE provider = ? AND provider_subscription_id = ?`
+    ).bind(PROVIDER, subject.subscriptionId).first();
 
     if (winner) {
       // Whichever row won, make sure the identifiers this event carried end
-      // up on it — the buyer's browser looks the licence up by transaction id.
-      if (subject.transactionId && !winner.paddle_transaction_id) {
+      // up on it — the buyer's browser looks the licence up by payment id.
+      if (subject.transactionId && !winner.provider_payment_id) {
         await env.DB.prepare(
-          'UPDATE licenses SET paddle_transaction_id = ?, updated_at = ? WHERE key = ?'
+          'UPDATE licenses SET provider_payment_id = ?, updated_at = ? WHERE key = ?'
         ).bind(subject.transactionId, now, winner.key).run();
       }
       if (subject.email) {
@@ -237,28 +271,26 @@ async function issueKeyFor(env, subject) {
 }
 
 async function handleWebhook(request, env, ctx) {
-  // Source-address check first: it is cheap, and it rejects noise before any
-  // crypto runs. Not the primary control — the signature below is — so this
-  // fails OPEN when Paddle's IP endpoint is unreachable. See paddle-ips.js.
-  const ipCheck = await checkPaddleSourceIp(env, request);
-  if (!ipCheck.allowed) {
-    console.log(`webhook rejected on source ip ${ipCheck.ip}: ${ipCheck.reason}`);
-    // 403 rather than 401: this is not an authentication failure, and the
-    // distinction matters when reading Paddle's delivery log. Paddle retries
-    // either way, which is the safe behaviour if the list were ever wrong.
-    return json({ error: 'forbidden source' }, 403);
-  }
+  // There is no source-IP pre-filter here, unlike the Paddle integration.
+  // Paddle published a fetchable list of sender addresses; Dodo does not, and
+  // an allowlist that cannot be sourced is not a control. The HMAC signature
+  // was always the real defence — the IP check was only there to reject noise
+  // before spending crypto — so nothing load-bearing is lost.
 
   // Must be the raw body — re-serialising the parsed JSON changes the bytes
   // and the HMAC will never match.
   const raw = await request.text();
 
-  // Both slots are tried. Sandbox and live are separate destinations with
-  // separate secrets, so a single slot would mean setting the live secret
-  // breaks sandbox deliveries the same minute. See verifyAgainstAnySecret.
-  const verified = await verifyAgainstAnySecret(raw, request.headers.get('Paddle-Signature'), {
-    PADDLE_WEBHOOK_SECRET: env.PADDLE_WEBHOOK_SECRET,
-    PADDLE_WEBHOOK_SECRET_LIVE: env.PADDLE_WEBHOOK_SECRET_LIVE
+  // The event id is a HEADER for Dodo (Standard Webhooks), not a body field
+  // as it was for Paddle. It is also part of the signed content.
+  const headers = readWebhookHeaders(request);
+
+  // Both slots are tried. Test and live endpoints have separate secrets, so a
+  // single slot would mean setting the live secret breaks test deliveries the
+  // same minute. It also gives rotation for free. See verifyAgainstAnySecret.
+  const verified = await verifyAgainstAnySecret(raw, headers, {
+    DODO_WEBHOOK_SECRET: env.DODO_WEBHOOK_SECRET,
+    DODO_WEBHOOK_SECRET_TEST: env.DODO_WEBHOOK_SECRET_TEST
   });
   if (!verified.ok) {
     console.log(`webhook rejected: ${verified.reason}`);
@@ -273,10 +305,10 @@ async function handleWebhook(request, env, ctx) {
     return json({ error: 'invalid json' }, 400);
   }
 
-  const subject = extractSubject(event);
-  if (!subject.eventId) return json({ error: 'missing event_id' }, 400);
+  const subject = extractSubject(event, headers.id);
+  if (!subject.eventId) return json({ error: 'missing webhook-id' }, 400);
 
-  // Replay guard. Paddle retries on any non-2xx, so a duplicate delivery is
+  // Replay guard. Dodo retries on any non-2xx, so a duplicate delivery is
   // normal traffic, not an attack — swallow it with a 200 or it retries forever.
   const seen = await env.DB.prepare(
     'SELECT event_id FROM webhook_events WHERE event_id = ?'
@@ -285,92 +317,113 @@ async function handleWebhook(request, env, ctx) {
 
   // NOTE: the ledger row is written AFTER the event is acted on, at the bottom
   // of this function. Writing it here — which is what this code used to do —
-  // silently loses events: if the switch below throws, the outer handler
-  // returns 500, Paddle retries, the retry matches the dedup check above and
-  // gets a 200 with duplicate:true. Paddle then marks the event delivered and
+  // silently loses events: if the branches below throw, the outer handler
+  // returns 500, Dodo retries, the retry matches the dedup check above and
+  // gets a 200 with duplicate:true. Dodo then marks the event delivered and
   // stops. The result is a customer who paid and whose key was never minted,
   // with nothing anywhere reporting a failure.
   //
   // Recording last means a crash between acting and recording causes a REPLAY
-  // instead, which is safe: issueKeyFor dedupes on paddle_subscription_id and
+  // instead, which is safe: issueKeyFor dedupes on the subscription id and
   // every other branch is an idempotent UPDATE. At-least-once processing with
   // idempotent handlers beats mark-then-lose.
 
   const now = Date.now();
+  const type = String(subject.eventType ?? '');
   let issuedKey = null;
 
-  switch (subject.eventType) {
-    case 'subscription.created':
-    case 'subscription.activated':
-    case 'transaction.completed':
-      issuedKey = await issueKeyFor(env, subject);
-      break;
+  // Dispatch on the event SETS from dodo.js rather than a switch, because Dodo
+  // has 26 event types where Paddle's integration handled 9, and most of them
+  // mean the same three things. The sets are asserted non-overlapping in
+  // test/dodo-signature.mjs.
+  if (GRANTING_EVENTS.has(type)) {
+    // subscription.active (first purchase), subscription.renewed (each year)
+    // and payment.succeeded all mean "paid". They arrive concurrently for one
+    // purchase; issueKeyFor is idempotent on the subscription id and extends
+    // the expiry on renewal.
+    issuedKey = await issueKeyFor(env, subject);
 
-    case 'subscription.updated':
-    case 'subscription.resumed':
+  } else if (type === 'subscription.updated' || type === 'subscription.unpaused') {
+    // A plan change or an un-pause. Restore access and move the expiry to the
+    // new period end. COALESCE so an event without a date cannot blank it.
+    if (subject.subscriptionId) {
+      await env.DB.prepare(
+        `UPDATE licenses
+            SET status = 'active', expires_at = COALESCE(?, expires_at), updated_at = ?
+          WHERE provider = ? AND provider_subscription_id = ?`
+      ).bind(toEpochMs(subject.nextBilledAt), now, PROVIDER, subject.subscriptionId).run();
+    }
+
+  } else if (REVOKING_EVENTS.has(type)) {
+    if (type === 'refund.succeeded') {
+      // Money returned. Kill access immediately — this is the one case where
+      // someone loses a period they nominally paid for, because they did not
+      // ultimately pay for it.
       if (subject.subscriptionId) {
         await env.DB.prepare(
-          `UPDATE licenses
-              SET status = 'active', expires_at = ?, updated_at = ?
-            WHERE paddle_subscription_id = ?`
-        ).bind(toEpochMs(subject.nextBilledAt), now, subject.subscriptionId).run();
-      }
-      break;
-
-    case 'subscription.canceled':
-    case 'subscription.paused':
-      // Access runs to the end of the period already paid for.
-      if (subject.subscriptionId) {
+          `UPDATE licenses SET status = 'revoked', updated_at = ?
+            WHERE provider = ? AND provider_subscription_id = ?`
+        ).bind(now, PROVIDER, subject.subscriptionId).run();
+      } else if (subject.transactionId) {
+        // A refunded ONE-OFF payment has no subscription to match on.
         await env.DB.prepare(
-          `UPDATE licenses
-              SET status = 'canceled', expires_at = COALESCE(?, expires_at), updated_at = ?
-            WHERE paddle_subscription_id = ?`
-        ).bind(toEpochMs(subject.nextBilledAt), now, subject.subscriptionId).run();
+          `UPDATE licenses SET status = 'revoked', updated_at = ?
+            WHERE provider = ? AND provider_payment_id = ?`
+        ).bind(now, PROVIDER, subject.transactionId).run();
       }
-      break;
+    } else if (subject.subscriptionId) {
+      // subscription.cancelled / subscription.expired. Access runs to the end
+      // of the period already paid for — evaluateKey honours expires_at and
+      // only treats 'revoked' as immediate.
+      await env.DB.prepare(
+        `UPDATE licenses
+            SET status = 'canceled', expires_at = COALESCE(?, expires_at), updated_at = ?
+          WHERE provider = ? AND provider_subscription_id = ?`
+      ).bind(toEpochMs(subject.nextBilledAt), now, PROVIDER, subject.subscriptionId).run();
+    }
 
-    // Subscription and transaction payloads carry customer_id but usually no
-    // customer object, so the email arrives only on these events. Without it
-    // there is no way to contact a buyer about their own licence.
-    case 'customer.created':
-    case 'customer.updated':
-      if (subject.customerId && subject.email) {
-        // Record it regardless of whether a licence exists yet — issueKeyFor
-        // reads this table when the event it is handling has no email.
-        await env.DB.prepare(
-          `INSERT INTO customers (paddle_customer_id, email, updated_at)
-           VALUES (?, ?, ?)
-           ON CONFLICT(paddle_customer_id) DO UPDATE SET email = ?, updated_at = ?`
-        ).bind(subject.customerId, subject.email, now, subject.email, now).run();
+  } else if (SUSPENDING_EVENTS.has(type)) {
+    // past_due / on_hold / paused / failed — recoverable, so the row keeps its
+    // expiry and can be restored by a later renewal or un-pause.
+    if (subject.subscriptionId) {
+      await env.DB.prepare(
+        `UPDATE licenses SET status = 'past_due', updated_at = ?
+          WHERE provider = ? AND provider_subscription_id = ?`
+      ).bind(now, PROVIDER, subject.subscriptionId).run();
+    }
 
-        // And cover the other ordering: a licence minted before this arrived.
-        await env.DB.prepare(
-          `UPDATE licenses SET email = ?, updated_at = ?
-            WHERE paddle_customer_id = ? AND (email IS NULL OR email = '')`
-        ).bind(subject.email, now, subject.customerId).run();
-      }
-      break;
+  } else if (type.startsWith('dispute.')) {
+    // A chargeback. `dispute.opened` already means the money is contested and
+    // the card network will claw it back by default, so do not wait for
+    // dispute.lost — the filter feed is cheap to restore if it resolves our
+    // way, and serving a disputed licence for the length of a dispute is not.
+    if (subject.subscriptionId) {
+      await env.DB.prepare(
+        `UPDATE licenses SET status = 'revoked', updated_at = ?
+          WHERE provider = ? AND provider_subscription_id = ?`
+      ).bind(now, PROVIDER, subject.subscriptionId).run();
+    }
+  }
+  // Anything else is recorded below and acknowledged. Returning an error would
+  // make Dodo retry something we will never act on.
 
-    case 'subscription.past_due':
-      if (subject.subscriptionId) {
-        await env.DB.prepare(
-          "UPDATE licenses SET status = 'past_due', updated_at = ? WHERE paddle_subscription_id = ?"
-        ).bind(now, subject.subscriptionId).run();
-      }
-      break;
+  // Every Dodo payload carries customer.email, so the address is recorded from
+  // whatever event arrives rather than from a dedicated customer.* event as it
+  // was under Paddle. That removes the ordering hazard the customers table was
+  // built for — see migrations/002 — but the table is still written so key
+  // recovery by email keeps working.
+  if (subject.customerId && subject.email) {
+    await env.DB.prepare(
+      `INSERT INTO customers (provider, provider_customer_id, email, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(provider_customer_id) DO UPDATE SET email = ?, updated_at = ?`
+    ).bind(PROVIDER, subject.customerId, subject.email, now, subject.email, now).run();
 
-    case 'adjustment.created': // refund or chargeback — kill it now
-      if (subject.subscriptionId) {
-        await env.DB.prepare(
-          "UPDATE licenses SET status = 'revoked', updated_at = ? WHERE paddle_subscription_id = ?"
-        ).bind(now, subject.subscriptionId).run();
-      }
-      break;
-
-    default:
-      // Unhandled event types are recorded above and acknowledged. Returning
-      // an error would make Paddle retry something we will never act on.
-      break;
+    await env.DB.prepare(
+      `UPDATE licenses SET email = ?, updated_at = ?
+        WHERE provider = ? AND provider_customer_id = ?
+          AND (email IS NULL OR email = '')`
+    ).bind(subject.email, now, PROVIDER, subject.customerId).run();
   }
 
   // Acted on successfully — only now is it safe to call this event handled.
@@ -379,22 +432,21 @@ async function handleWebhook(request, env, ctx) {
   ).bind(subject.eventId, subject.eventType, now, raw).run();
 
   // Deliver the key, AFTER acknowledging. Two reasons this is deferred rather
-  // than awaited: the handler has a 5-second budget before Paddle calls the
+  // than awaited: the handler has a short budget before Dodo calls the
   // delivery a timeout and retries, and a mail failure must never fail the
   // webhook — the licence work has already succeeded and a retry would redo it.
   //
-  // Driven off the customer id rather than only the minting path, because the
-  // email frequently arrives on a LATER customer.created event than the one
-  // that created the licence. Whichever event completes the pair triggers the
-  // send; sendLicenceKey claims the row so only one of them actually sends.
+  // Driven off the customer id rather than only the minting path, so that
+  // whichever event completes the (licence, email) pair triggers the send.
+  // sendLicenceKey claims the row so only one of them actually sends.
   if (subject.customerId) {
     ctx.waitUntil((async () => {
       try {
         const row = await env.DB.prepare(
           `SELECT key, email, activation_limit, expires_at FROM licenses
-            WHERE paddle_customer_id = ? AND key_sent_at IS NULL
+            WHERE provider = ? AND provider_customer_id = ? AND key_sent_at IS NULL
               AND email IS NOT NULL AND status != 'revoked'`
-        ).bind(subject.customerId).first();
+        ).bind(PROVIDER, subject.customerId).first();
         if (!row) return;
         const result = await sendLicenceKey(env, {
           key: row.key,
@@ -409,9 +461,9 @@ async function handleWebhook(request, env, ctx) {
     })());
   }
 
-  // The key still has to reach the buyer. Paddle's own post-purchase workflow
-  // (or a fulfilment email built on the transaction's custom data) is the
-  // delivery path; this response is only the webhook acknowledgement.
+  // The key still has to reach the buyer. The success panel on /pricing (which
+  // polls /v1/license/by-transaction) and the email above are the delivery
+  // paths; this response is only the webhook acknowledgement.
   if (issuedKey) console.log(`issued key for subscription ${subject.subscriptionId}`);
 
   return json({ ok: true });
@@ -452,20 +504,29 @@ export default {
         return json(result);
       }
 
-      // --- collect a key with the transaction id from checkout ------------
+      // --- collect a key with the payment id from checkout ----------------
       // This is how a buyer receives their key without an email pipeline
-      // existing: Paddle hands the transaction id to their browser when the
-      // overlay completes, and they trade it for the key here.
+      // existing: the provider hands the payment id to their browser when
+      // checkout completes, and they trade it for the key here.
       //
-      // The transaction id is the bearer credential. That is acceptable: it is
-      // a 26-character unguessable id that Paddle discloses only to the
-      // purchasing browser, and the thing it unlocks is a filter-list
-      // subscription. It is rate limited, and it is NOT a substitute for
-      // emailing the key as well — a closed tab loses this route.
+      // The payment id is the bearer credential. That is acceptable: it is an
+      // unguessable id disclosed only to the purchasing browser, and the thing
+      // it unlocks is a filter-list subscription. It is rate limited, and it is
+      // NOT a substitute for emailing the key as well — a closed tab loses this
+      // route.
+      //
+      // The path keeps its `by-transaction` name and `transaction_id` parameter
+      // so already-shipped clients and saved success URLs keep working; only
+      // the id FORMAT changed with the provider.
       if (path === '/v1/license/by-transaction' && request.method === 'GET') {
         const txn = url.searchParams.get('transaction_id') ?? '';
-        if (!/^txn_[a-z0-9]{26}$/.test(txn)) {
-          return json({ error: 'malformed transaction id' }, 400);
+        // Was `^txn_[a-z0-9]{26}$` — Paddle's exact format, which rejects every
+        // Dodo payment id. Dodo's ids are opaque and their shape is not
+        // documented as a stable contract, so this validates the character set
+        // and a sane length rather than inventing a prefix that a future id
+        // might not carry. It still blocks anything that is not an identifier.
+        if (!/^[A-Za-z0-9_-]{8,80}$/.test(txn)) {
+          return json({ error: 'malformed payment id' }, 400);
         }
 
         if (env.VALIDATE_LIMITER) {
@@ -475,8 +536,9 @@ export default {
         }
 
         const row = await env.DB.prepare(
-          "SELECT key, expires_at FROM licenses WHERE paddle_transaction_id = ? AND status != 'revoked'"
-        ).bind(txn).first();
+          `SELECT key, expires_at FROM licenses
+            WHERE provider = ? AND provider_payment_id = ? AND status != 'revoked'`
+        ).bind(PROVIDER, txn).first();
 
         // 404 here is usually "the webhook has not landed yet" rather than
         // "no such purchase" — the two are indistinguishable from here, so say
@@ -508,9 +570,17 @@ export default {
         return json(stored, 200, { ETag: etag, 'Cache-Control': 'private, max-age=3600' });
       }
 
-      // --- Paddle --------------------------------------------------------
-      if (path === '/v1/paddle/webhook' && request.method === 'POST') {
+      // --- Dodo Payments --------------------------------------------------
+      if (path === '/v1/dodo/webhook' && request.method === 'POST') {
         return await handleWebhook(request, env, ctx);
+      }
+
+      // The Paddle endpoint is gone, not redirected. Paddle refused the
+      // account on 2026-09-10, so nothing can legitimately POST here; a 410
+      // says so plainly instead of letting a stray call look like a network
+      // fault while a buyer waits for a key that will never come.
+      if (path === '/v1/paddle/webhook') {
+        return json({ error: 'gone: this integration moved to Dodo Payments' }, 410);
       }
 
       // --- admin: publish a filter build ---------------------------------
