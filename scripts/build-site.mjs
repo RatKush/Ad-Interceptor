@@ -59,7 +59,7 @@ const group = (n) => Number(n).toLocaleString('en-US');
 // production is a placeholder nobody checked.
 const REQUIRED = {
   legalName: 'your full legal name — the merchant of record wants the sole trader\'s legal name in the Terms',
-  morName: 'the merchant of record (who legally sells to the buyer and appears on their receipt)',
+  processorName: 'the payment processor (NOT a merchant of record — the seller of record is legalName)',
   jurisdiction: 'the country whose law governs the Terms, e.g. "India"',
   webStoreUrl: 'the public Chrome Web Store listing — a site that sells a product must show where to get it'
 };
@@ -254,7 +254,7 @@ console.log(`  Pro price    : $${seller.priceUSD}/yr, ${seller.deviceLimit} devi
 console.log(`  refund window: ${seller.refundDays} days`);
 console.log(`  rule counts  : ${group(counts.freeNetwork)} network, ${group(counts.cosmeticGeneric)} cosmetic (built ${counts.builtAt})`);
 console.log(`  checkout     : ${tokens.checkoutEnabled ? `${seller.dodoMode} (${seller.dodoProductId})` : 'NOT configured'}`);
-console.log(`  merchant     : ${seller.morName}`);
+console.log(`  seller of rec: ${seller.legalName} — payments via ${seller.processorName}`);
 console.log(`  licence API  : ${seller.apiBase || 'NOT set — keys must be issued by hand'}`);
 
 if (problems.length) {

@@ -217,7 +217,7 @@
   <section>
     <h2>Billing, tax and refunds</h2>
     <p>
-      Payments are processed by <strong>{{morName}}</strong>, which acts as the
+      Payments are processed by <strong>{{processorName}}</strong>, acting as our payment provider, not as the
       merchant of record and handles VAT and sales tax where it applies. Any tax
       due is shown at checkout before you pay, so the price you confirm is the
       price you are charged.
@@ -231,7 +231,7 @@
 
 <footer>
   <p><strong>{{legalName}}</strong>, trading as Ad Interceptor.</p>
-  <p>Payments are processed by {{morName}}, which acts as the merchant of record for all Ad Interceptor Pro purchases.</p>
+  <p>Ad Interceptor Pro is sold by {{legalName}} ({{jurisdiction}}). Payments are processed by {{processorName}}.</p>
   <p><a href="/pricing">Pricing</a> &middot; <a href="/terms">Terms &amp; Conditions</a> &middot; <a href="/refunds">Refund Policy</a> &middot; <a href="/privacy-policy">Privacy Policy</a> &middot; <a href="mailto:{{contactEmail}}">{{contactEmail}}</a></p>
 </footer>
 <!-- This site now loads NO third-party resource of any kind.
@@ -309,7 +309,7 @@
         'Purchased: ' + new Date().toISOString().slice(0, 10),
         'Support: {{contactEmail}}',
         '',
-        'Payments are handled by {{morName}}, our merchant of record.'
+        'Sold by {{legalName}}. Payments processed by {{processorName}}.'
       ].filter(function (l) { return l !== ''; }).join('\n');
 
       var blob = new Blob([lines], { type: 'text/plain;charset=utf-8' });
