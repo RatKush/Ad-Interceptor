@@ -20,7 +20,7 @@ const ACTIVATE_STEPS = [
  * Plain-text body. Always sent alongside the HTML — some clients show only
  * text, and a text part measurably improves spam scoring.
  */
-function textBody({ key, deviceLimit, expiresAt, support }) {
+function textBody({ key, deviceLimit, expiresAt, support, seller, processor }) {
   const until = expiresAt
     ? new Date(expiresAt).toISOString().slice(0, 10)
     : null;
@@ -44,11 +44,11 @@ function textBody({ key, deviceLimit, expiresAt, support }) {
     '',
     '—',
     'Ad Interceptor',
-    'Payments are handled by Paddle, our merchant of record.'
+    `Sold by ${seller}. Payments are processed by ${processor}.`
   ].filter((l) => l !== null).join('\n');
 }
 
-function htmlBody({ key, deviceLimit, expiresAt, support }) {
+function htmlBody({ key, deviceLimit, expiresAt, support, seller, processor }) {
   const until = expiresAt ? new Date(expiresAt).toISOString().slice(0, 10) : null;
   // Deliberately plain HTML: inline styles only, no external CSS, no images,
   // no tracking pixel. Image-heavy transactional mail lands in spam more often
@@ -80,7 +80,7 @@ function htmlBody({ key, deviceLimit, expiresAt, support }) {
 
   <hr style="border:none;border-top:1px solid #e2deec;margin:22px 0 14px;">
   <p style="margin:0;font-size:12px;color:#90909c;">
-    Ad Interceptor. Payments are handled by Paddle, our merchant of record.
+    Ad Interceptor. Sold by ${seller}. Payments are processed by ${processor}.
   </p>
 </div>
 </body></html>`;
@@ -90,14 +90,14 @@ function htmlBody({ key, deviceLimit, expiresAt, support }) {
  * Email a licence key, at most once per key.
  *
  * Returns a short status string for the log. Never throws: a failed send must
- * not fail the webhook, because Paddle would retry the whole event and the
- * licence work has already succeeded.
+ * not fail the webhook, because the provider would retry the whole event and
+ * the licence work has already succeeded.
  */
 export async function sendLicenceKey(env, { key, email, deviceLimit, expiresAt }) {
   if (!key || !email) return 'skipped: no key or address';
   if (!env.EMAIL || !env.MAIL_FROM) return 'skipped: sending not configured';
 
-  // Claim the send before doing it. Paddle delivers several events per
+  // Claim the send before doing it. Providers deliver several events per
   // purchase and retries them, so two invocations can reach this point at
   // once; the conditional UPDATE lets exactly one win. Duplicate "here is your
   // key" emails read as a compromised account.
@@ -109,7 +109,25 @@ export async function sendLicenceKey(env, { key, email, deviceLimit, expiresAt }
   if (!claim.meta?.changes) return 'skipped: already sent';
 
   const support = env.SUPPORT_EMAIL || env.MAIL_FROM;
-  const fields = { key, deviceLimit: deviceLimit ?? 3, expiresAt, support };
+
+  // WHO SOLD THIS is a legal statement, not boilerplate, and it was wrong
+  // until 2026-09-18: the footer said "Payments are handled by Paddle, our
+  // merchant of record" — naming a company that refused the account on
+  // 2026-09-10, and claiming a merchant-of-record arrangement that no longer
+  // exists at all.
+  //
+  // It matters because a merchant of record IS the legal seller and owes the
+  // tax. PayPal is a processor: the seller of record is the individual named
+  // here, and so is the tax obligation. store-listing/web/seller.json makes
+  // the same statement on every page of the site, and a receipt that
+  // contradicts the site is the version a customer keeps.
+  //
+  // Defaults match seller.json rather than being blank, because a receipt with
+  // "Sold by ." in it is worse than one that is merely not configurable yet.
+  const seller = env.SELLER_LEGAL_NAME || 'Ratnesh Kushwaha';
+  const processor = env.PROCESSOR_NAME || 'PayPal';
+
+  const fields = { key, deviceLimit: deviceLimit ?? 3, expiresAt, support, seller, processor };
 
   try {
     await env.EMAIL.send({

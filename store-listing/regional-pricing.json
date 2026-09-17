@@ -33,6 +33,6 @@
     { "cur": "TRY", "amount": 199,   "decimals": 2, "countries": ["TR"], "tier": "ppp" },
     { "cur": "UAH", "amount": 249,   "decimals": 2, "countries": ["UA"], "tier": "ppp" },
     { "cur": "INR", "amount": 499,   "decimals": 2, "countries": ["IN"], "tier": "ppp",
-      "//": "Priced to unlock UPI. Under Paddle this needed an INR price for customers in India and a recurring total under 15,000 INR. Dodo is India-based and supports UPI directly, so CONFIRM its own constraints rather than carrying Paddle's forward." }
+      "//": "Priced to unlock UPI. Under Paddle this needed an INR price for customers in India and a recurring total under 15,000 INR. Neither Paddle nor Dodo is the provider any more — PayPal is, and the product sells in USD only, so there is no INR price to tune. UPI is not available through PayPal for this account; treat this row as product knowledge for a future provider, not as live config." }
   ]
 }

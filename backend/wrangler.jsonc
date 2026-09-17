@@ -58,6 +58,14 @@
     "MAIL_FROM_NAME": "Ad Interceptor",
     "SUPPORT_EMAIL": "thenightwatchcaptain@gmail.com",
 
+    // Who sold the licence, for the receipt email's footer. A legal statement,
+    // not boilerplate: PayPal is a PROCESSOR, so the seller of record is the
+    // individual named here and the tax obligation is theirs. Keep both in
+    // step with legalName and processorName in store-listing/web/seller.json —
+    // a receipt that contradicts the site is the copy the customer keeps.
+    "SELLER_LEGAL_NAME": "Ratnesh Kushwaha",
+    "PROCESSOR_NAME": "PayPal",
+
     // Which PayPal host to talk to. Anything other than "live" means sandbox,
     // deliberately: a typo should cost sandbox traffic, never real charges
     // against the wrong environment. Flip to "live" only once a sandbox
