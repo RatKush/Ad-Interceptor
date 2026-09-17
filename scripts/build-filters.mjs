@@ -62,6 +62,47 @@ const PRO_SOURCES = [
   { name: 'antiadblock', url: 'https://easylist-downloads.adblockplus.org/antiadblockfilters.txt' },
 ];
 
+// Pro tier, part two: ANNOYANCES.
+//
+// Split into two independently toggleable lists rather than one "annoyances"
+// blob, because the two fail differently and a user needs to be able to keep
+// one while dropping the other:
+//
+//   cookies — hides consent dialogs. It HIDES them, it does not answer them.
+//             Some sites will not load content until a choice is recorded, so
+//             a user in the EU may genuinely want this off. (Clicking the
+//             button for them is the other approach — see the note in
+//             background.js on why we don't.)
+//   annoy   — floating/sticky video players, newsletter modals, survey
+//             overlays, app-install interstitials, in-page social widgets.
+//             Much lower risk, and the part people actually mean by
+//             "distraction control".
+//
+// LICENCE: both are EasyList-project lists, and both were checked against the
+// licence line in their own headers rather than assumed:
+//
+//   Easylist Cookie List   — "! License: creativecommons.org/licenses/by/3.0/"
+//                            CC BY 3.0: attribution, no share-alike.
+//   Fanboy's Annoyance     — "! Licence: easylist.to/pages/licence.html"
+//                            the usual dual GPLv3 / CC BY-SA 3.0; used here
+//                            under CC BY-SA 3.0, exactly as EasyList itself is.
+//
+// AdGuard's annoyance filters are better in places but are GPL-3.0 only, which
+// would impose GPL terms on this extension's source — the same reason
+// @adguard/dnr-converter is a build-time devDependency that is never bundled.
+//
+// The cookie list is served from secure.fanboy.co.nz. That is not a third-party
+// mirror: the file's own "! Title:" is "Easylist Cookie List" and it is the
+// canonical download. The easylist-downloads.adblockplus.org and easylist.to
+// paths for it both 404.
+const COOKIE_SOURCES = [
+  { name: 'easylist-cookie', url: 'https://secure.fanboy.co.nz/fanboy-cookiemonster.txt' },
+];
+
+const ANNOY_SOURCES = [
+  { name: 'fanboy-annoyance', url: 'https://easylist.to/easylist/fanboy-annoyance.txt' },
+];
+
 // ---- BUDGET ---------------------------------------------------------------
 // GUARANTEED_MINIMUM_STATIC_RULES is 30,000, but that is a floor, not a cap:
 // getAvailableStaticRuleCount() reports ~300,000 further rules available from
@@ -270,6 +311,15 @@ async function main() {
   console.log('\n--- pro tier ---');
   const pro = await buildTier(PRO_SOURCES, 'pro', false);
 
+  // enableFirst is false for all three Pro tiers: nothing here may be on until
+  // background.js has confirmed a licence, and the annoyance tiers additionally
+  // wait on the user's own toggle.
+  console.log('\n--- pro tier: cookie consent ---');
+  const cookies = await buildTier(COOKIE_SOURCES, 'cookies', false);
+
+  console.log('\n--- pro tier: distractions ---');
+  const annoy = await buildTier(ANNOY_SOURCES, 'annoy', false);
+
   // The manifest is generated rather than hand-edited so the ruleset list can
   // never drift out of sync with the files on disk.
   const manifestPath = path.join(ROOT, 'manifest.json');
@@ -283,7 +333,11 @@ async function main() {
     rule_resources: [
       ...custom.rulesets,
       ...free.rulesets,
-      ...(PRO_ENABLED ? pro.rulesets : [])
+      // Order is the quota order: syncStaticRulesets() enables declared
+      // rulesets in sequence and stops at the first refusal, so the free ad and
+      // tracker rules must come before anything Pro adds. Annoyances are worth
+      // paying for; they are not worth losing ad blocking to fit.
+      ...(PRO_ENABLED ? [...pro.rulesets, ...cookies.rulesets, ...annoy.rulesets] : [])
     ]
   };
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
@@ -299,6 +353,10 @@ async function main() {
   const counts = {
     freeNetwork: free.chunks.reduce((n, c) => n + c.length, 0),
     proNetwork: pro.chunks.reduce((n, c) => n + c.length, 0),
+    cookieNetwork: cookies.chunks.reduce((n, c) => n + c.length, 0),
+    annoyNetwork: annoy.chunks.reduce((n, c) => n + c.length, 0),
+    cookieCosmetic: cookies.cosmetic.generic.length + Object.keys(cookies.cosmetic.specific).length,
+    annoyCosmetic: annoy.cosmetic.generic.length + Object.keys(annoy.cosmetic.specific).length,
     cosmeticGeneric: free.cosmetic.generic.length,
     cosmeticDomains: Object.keys(free.cosmetic.specific).length,
     builtAt: new Date().toISOString().slice(0, 10)
@@ -319,7 +377,10 @@ async function main() {
   describe('SUPPLEMENTAL (ours)', custom);
   describe('FREE', free);
   describe('PRO (anti-adblock)', pro);
-  console.log(`\nTotal: ${count(custom) + count(free) + count(pro)} network rules. manifest.json regenerated.`);
+  describe('PRO (cookie consent)', cookies);
+  describe('PRO (distractions)', annoy);
+  const total = count(custom) + count(free) + count(pro) + count(cookies) + count(annoy);
+  console.log(`\nTotal: ${total} network rules. manifest.json regenerated.`);
 }
 
 main().catch((err) => {

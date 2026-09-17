@@ -6,10 +6,21 @@ Ad Interceptor's blocking rules are generated from:
 
 - **EasyList** — https://easylist.to/
 - **EasyPrivacy** — https://easylist.to/
+- **Adblock Warning Removal List** — https://easylist.to/ (Pro)
+- **Fanboy's Annoyance List** — https://easylist.to/ (Pro — distraction control)
 
-Both lists are dual-licensed under the GNU General Public License v3.0 and the
+These lists are dual-licensed under the GNU General Public License v3.0 and the
 Creative Commons Attribution-ShareAlike 3.0 Unported licence. **This project
 uses them under CC BY-SA 3.0** (https://creativecommons.org/licenses/by-sa/3.0/).
+
+Copyright © The EasyList authors.
+
+- **Easylist Cookie List** — https://easylist.to/ (Pro — cookie consent)
+
+Served from https://secure.fanboy.co.nz/fanboy-cookiemonster.txt. Its own header
+declares a different licence from the lists above: **CC BY 3.0**
+(https://creativecommons.org/licenses/by/3.0/) — attribution, without the
+share-alike obligation.
 
 Copyright © The EasyList authors.
 
@@ -35,6 +46,11 @@ Chrome `declarativeNetRequest` rules. It is a **build-time-only devDependency**:
 it is never bundled into or distributed with the extension package (see the
 `node_modules/` exclusion in `scripts/package.sh`), and only its data output
 ships.
+
+**AdGuard's annoyance and cookie filter lists are deliberately not used.** They
+are GPL-3.0 only, and bundling their data in the package would place the
+extension under GPL-3.0. The EasyList-project equivalents above cover the same
+ground under CC BY / CC BY-SA.
 
 Do not add `@adguard/dnr-rulesets` or any other GPL-licensed component to the
 shipped package — those distribute GPL-covered material inside the extension,

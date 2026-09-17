@@ -10362,6 +10362,7 @@
 .house-ad,
 .house-ad-small,
 .house-ad-unit,
+.house-ad-wrapper,
 .house-ads,
 .houseAd,
 .houseAd1,
@@ -10516,9 +10517,9 @@
 .is-sticky-ad,
 .isAd,
 .isAdPage,
-.isad_box,
-.ise-ad { display: none !important; }
+.isad_box { display: none !important; }
 
+.ise-ad,
 .island-ad,
 .islandAd,
 .islandAdvert,
@@ -11017,9 +11018,9 @@
 .mpu-c,
 .mpu-footer,
 .mpu-fp,
-.mpu-holder,
-.mpu-leaderboard { display: none !important; }
+.mpu-holder { display: none !important; }
 
+.mpu-leaderboard,
 .mpu-left,
 .mpu-left-bk,
 .mpu-mediatv,
@@ -11518,9 +11519,9 @@
 .reklam-masthead,
 .reklam2,
 .reklam728,
-.reklama,
-.reklama-vert { display: none !important; }
+.reklama { display: none !important; }
 
+.reklama-vert,
 .reklama1,
 .reklame-wrapper,
 .reklamka,
@@ -12019,9 +12020,9 @@
 .sponsorPost,
 .sponsorPostWrap,
 .sponsorStrip,
-.sponsorText,
-.sponsorTitle { display: none !important; }
+.sponsorText { display: none !important; }
 
+.sponsorTitle,
 .sponsorTxt,
 .sponsor_ad,
 .sponsor_ad1,
@@ -12520,9 +12521,9 @@
 .towerad,
 .tp-ad-label,
 .tp_ads,
-.tpd-banner-ad-container,
-.tpd-banner-desktop { display: none !important; }
+.tpd-banner-ad-container { display: none !important; }
 
+.tpd-banner-desktop,
 .trc-content-sponsored,
 .trend-card-advert,
 .trend-card-advert__title,
@@ -13021,9 +13022,9 @@ a[href^="https://go.markets.com/visit/?bta="],
 a[href^="https://go.mnaspm.com/"],
 a[href^="https://go.rmhfrtnd.com"],
 a[href^="https://go.rmishe.com/"],
-a[href^="https://go.skinstrip.net"][href*="?campaignId="],
-a[href^="https://go.strpjmp.com/"] { display: none !important; }
+a[href^="https://go.skinstrip.net"][href*="?campaignId="] { display: none !important; }
 
+a[href^="https://go.strpjmp.com/"],
 a[href^="https://go.tmrjmp.com"],
 a[href^="https://go.trackitalltheway.com/"],
 a[href^="https://go.xlirdr.com"],
@@ -13522,9 +13523,9 @@ amp-fx-flying-carpet,
 .widget_outbrain_widget,
 a[data-oburl^="https://paid.outbrain.com/network/redir?"],
 a[data-redirect^="https://paid.outbrain.com/network/redir?"],
-a[href^="https://paid.outbrain.com/network/redir?"],
-a[onmousedown^="this.href='https://paid.outbrain.com/network/redir?"] { display: none !important; }
+a[href^="https://paid.outbrain.com/network/redir?"] { display: none !important; }
 
+a[onmousedown^="this.href='https://paid.outbrain.com/network/redir?"],
 a[onmousedown^="this.href='https://paid.outbrain.com/network/redir?"] + .ob_source,
 #block-boxes-taboola,
 #block-taboolablock,

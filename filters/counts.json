@@ -1,7 +1,11 @@
 {
-  "freeNetwork": 106787,
-  "proNetwork": 2513,
-  "cosmeticGeneric": 13635,
-  "cosmeticDomains": 7707,
-  "builtAt": "2026-09-09"
+  "freeNetwork": 109346,
+  "proNetwork": 2514,
+  "cookieNetwork": 2102,
+  "annoyNetwork": 4184,
+  "cookieCosmetic": 31979,
+  "annoyCosmetic": 53069,
+  "cosmeticGeneric": 13636,
+  "cosmeticDomains": 7716,
+  "builtAt": "2026-09-16"
 }
