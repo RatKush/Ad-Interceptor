@@ -108,5 +108,151 @@ console.log('\nyoutube.js — ad stripping');
   check('Response.json strips ads incl. nested playerResponse', ok);
 }
 
+// ---------------- userfilters.js ----------------
+// Imported directly rather than run through the vm sandbox: this module is
+// deliberately free of chrome.* and DOM, which is the whole reason its logic
+// can be tested here instead of only in a browser run.
+console.log('\nuserfilters.js — parsing');
+{
+  const uf = await import(`${EXT}/userfilters.js`);
+  const ok = (text) => uf.parseRule(text);
+
+  check('hide rule with a domain', (() => {
+    const r = ok('example.com##.ad-slot');
+    return r.ok && r.rule.kind === 'hide' && r.rule.domains[0] === 'example.com'
+      && r.rule.selector === '.ad-slot';
+  })());
+
+  check('hide rule with no domain is global', (() => {
+    const r = ok('##.ad-slot');
+    return r.ok && r.rule.kind === 'hide' && r.rule.domains.length === 0;
+  })());
+
+  check('multiple domains', (() => {
+    const r = ok('a.com,b.com##.promo');
+    return r.ok && r.rule.domains.length === 2;
+  })());
+
+  check('unhide rule', (() => {
+    const r = ok('example.com#@#.promo');
+    return r.ok && r.rule.kind === 'unhide';
+  })());
+
+  check('network rule', (() => {
+    const r = ok('||ads.example.com^');
+    return r.ok && r.rule.kind === 'block' && r.rule.host === 'ads.example.com';
+  })());
+
+  check('comments and blanks produce no rule',
+    ok('! a note').rule === null && ok('   ').rule === null);
+
+  // --- the rejections. Each of these WOULD have been silently accepted by a
+  // looser parser and then never matched anything, which is the failure mode
+  // this module exists to prevent.
+  check('extended CSS rejected', !ok('example.com#?#div:has(.ad)').ok);
+  check('scriptlet injection rejected', !ok('example.com##+js(nowebrtc)').ok);
+  check('declaration block rejected', !ok('example.com##.a { color: red }').ok);
+  check('unbalanced bracket rejected', !ok('example.com##.a[href="x"').ok);
+  check('unbalanced paren rejected', !ok('example.com##.a:not(.b').ok);
+  check('wildcard domain rejected', !ok('example.*##.ad').ok);
+  check('negated domain rejected', !ok('~example.com##.ad').ok);
+  check('global unhide rejected', !ok('#@#.promo').ok);
+  check('@@ exception points at per-site pause', (() => {
+    const r = ok('@@||example.com^');
+    return !r.ok && /pause/i.test(r.error);
+  })());
+  check('garbage rejected with guidance', (() => {
+    const r = ok('just some words');
+    return !r.ok && /example\.com##/.test(r.error);
+  })());
+  check('over-long rule rejected', !ok(`example.com##.${'a'.repeat(250)}`).ok);
+
+  console.log('\nuserfilters.js — host matching');
+  const rules = uf.parseRules([
+    'example.com##.ad',
+    'other.com##.banner',
+    '##.global-ad',
+    'example.com#@#.keep'
+  ].join('\n')).rules;
+
+  check('subdomain inherits the parent domain rule', (() => {
+    const c = uf.cosmeticFor(rules, 'www.example.com');
+    return c.selectors.includes('.ad');
+  })());
+  check('global rule applies to an unrelated host', (() => {
+    const c = uf.cosmeticFor(rules, 'nothing-to-do-with-it.net');
+    return c.selectors.includes('.global-ad') && !c.selectors.includes('.ad');
+  })());
+  check('another domain\'s rule does not leak', (() => {
+    const c = uf.cosmeticFor(rules, 'example.com');
+    return !c.selectors.includes('.banner');
+  })());
+  check('unhide is scoped to its domain', (() => {
+    const mine = uf.cosmeticFor(rules, 'example.com');
+    const theirs = uf.cosmeticFor(rules, 'other.com');
+    return mine.unhide.includes('.keep') && theirs.unhide.length === 0;
+  })());
+  console.log('\nuserfilters.js — host candidates');
+  check('subdomains walk up to the registrable domain', (() => {
+    const c = uf.hostCandidates('news.bbc.co.uk');
+    return c[0] === 'news.bbc.co.uk' && c.includes('bbc.co.uk');
+  })());
+  check('a bare TLD is never a candidate', !uf.hostCandidates('news.bbc.co.uk').includes('uk'));
+  check('a two-label host yields itself', (() => {
+    const c = uf.hostCandidates('example.com');
+    return c.length === 1 && c[0] === 'example.com';
+  })());
+  // Regression: the loop used to stop before single-label hosts, so a rule
+  // written for localhost or an intranet name matched nothing, silently.
+  check('a SINGLE-label host still yields itself', (() => {
+    const c = uf.hostCandidates('localhost');
+    return c.length === 1 && c[0] === 'localhost';
+  })());
+  check('a rule on a single-label host actually applies', (() => {
+    const rules = uf.parseRules('localhost##.ad').rules;
+    return uf.cosmeticFor(rules, 'localhost').selectors.includes('.ad');
+  })());
+
+  // example.com must NOT be matched by a host that merely ends with the same
+  // letters — the classic suffix-matching hole.
+  check('notexample.com is not a subdomain of example.com', (() => {
+    const c = uf.cosmeticFor(rules, 'notexample.com');
+    return !c.selectors.includes('.ad');
+  })());
+
+  console.log('\nuserfilters.js — compiling and limits');
+  check('only block rules compile to DNR rules', (() => {
+    const compiled = uf.compileNetworkRules(
+      uf.parseRules('example.com##.ad\n||ads.example.com^').rules,
+      { idBase: 1000, maxRules: 500, priority: 1500000 }
+    );
+    return compiled.length === 1 && compiled[0].id === 1000
+      && compiled[0].condition.urlFilter === '||ads.example.com^'
+      && compiled[0].action.type === 'block';
+  })());
+
+  check('compiled ids stay inside their partition', (() => {
+    const many = Array.from({ length: 20 }, (_, i) => `||a${i}.example.com^`).join('\n');
+    const compiled = uf.compileNetworkRules(uf.parseRules(many).rules,
+      { idBase: 1000, maxRules: 5, priority: 1 });
+    return compiled.length === 5 && compiled.at(-1).id === 1004;
+  })());
+
+  check('rule-count limit is enforced', (() => {
+    const tooMany = Array.from({ length: uf.MAX_USER_RULES + 1 }, (_, i) => `a${i}.com##.x`);
+    return /Too many/.test(uf.checkStorable(tooMany) || '');
+  })());
+
+  check('sync byte budget is enforced', (() => {
+    // Few rules, but long ones — the case a count-only limit would let through
+    // and storage.sync would then reject asynchronously. 50 is comfortably
+    // under MAX_USER_RULES, so a pass here can only come from the byte check.
+    const fat = Array.from({ length: 50 }, (_, i) => `d${i}.com##.${'x'.repeat(150)}`);
+    return /too large/.test(uf.checkStorable(fat) || '');
+  })());
+
+  check('a normal list is storable', uf.checkStorable(['example.com##.ad']) === null);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

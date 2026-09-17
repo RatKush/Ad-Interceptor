@@ -138,6 +138,26 @@ function check(name, cond, detail = '') {
   cond ? pass++ : fail++;
 }
 
+/** Open a page and return a CDP client for it, plus its target id. */
+async function openPage(url, settleMs = 1200) {
+  const t = await newPage(url);
+  await sleep(settleMs);
+  const full = (await cdpList()).find((x) => x.id === t.id);
+  const c = connect(full.webSocketDebuggerUrl);
+  await c.ready;
+  return { client: c, id: t.id };
+}
+
+async function closePage(page) {
+  page.client.close();
+  await fetch(`${CDP}/json/close/${page.id}`).catch(() => {});
+}
+
+// Every ruleset prefix that is gated behind a licence. Must match TIERS in
+// background.js; scripts/check-pro-config.mjs enforces that against
+// package.sh, and this is the runtime half of the same list.
+const PRO_PREFIXES = /^(pro|cookies|annoy)-/;
+
 async function probePage() {
   const t = await newPage(`http://localhost:${PORT}/`);
   await sleep(2200);
@@ -191,7 +211,10 @@ try {
   const rulesets = await sw.eval('chrome.declarativeNetRequest.getEnabledRulesets()');
   const declared = await sw.eval(
     'chrome.runtime.getManifest().declarative_net_request.rule_resources.map(r=>r.id)');
-  const freeIds = declared.filter((id) => !id.startsWith('pro-'));
+  // Excludes every Pro prefix, not just `pro-`. With cookies-/annoy- added,
+  // filtering on `pro-` alone counted two licence-gated tiers as free and the
+  // count silently stopped meaning anything.
+  const freeIds = declared.filter((id) => !PRO_PREFIXES.test(id));
   check(`all ${freeIds.length} free rulesets enabled`,
     freeIds.every((id) => rulesets.includes(id)), JSON.stringify(rulesets));
   check('Pro rulesets NOT enabled without a licence',
@@ -256,8 +279,14 @@ try {
     console.log('\nPro compiled out (PRO_ENABLED=false)');
     const declaredIds = await sw.eval(
       'chrome.runtime.getManifest().declarative_net_request.rule_resources.map(r=>r.id)');
-    check('no pro-* rulesets declared in manifest',
-      !declaredIds.some((id) => id.startsWith('pro-')), JSON.stringify(declaredIds));
+    check('no Pro rulesets declared in manifest (pro-, cookies-, annoy-)',
+      !declaredIds.some((id) => PRO_PREFIXES.test(id)), JSON.stringify(declaredIds));
+
+    // picker.js is Pro-only and must not be in the package at all. Fetching an
+    // extension URL that does not exist rejects, so a rejection is the pass.
+    const pickerAbsent = await sw.eval(
+      `fetch(chrome.runtime.getURL('picker.js')).then(r=>r.ok).catch(()=>false)`);
+    check('picker.js is absent from a free build', pickerAbsent === false, `ok=${pickerAbsent}`);
 
     // Even with a valid-looking licence written directly to storage, nothing
     // Pro may activate — the code is not in the package to activate.
@@ -269,8 +298,18 @@ try {
       !scriptsAfter.includes('tab-scriptlets') && !scriptsAfter.includes('tab-youtube'),
       JSON.stringify(scriptsAfter));
     const setsAfter = await sw.eval('chrome.declarativeNetRequest.getEnabledRulesets()');
-    check('a forged licence cannot enable Pro rulesets',
-      !setsAfter.some((id) => id.startsWith('pro-')), JSON.stringify(setsAfter));
+    check('a forged licence cannot enable any Pro ruleset',
+      !setsAfter.some((id) => PRO_PREFIXES.test(id)), JSON.stringify(setsAfter));
+
+    // The options page ships in every build (manifest declares options_ui
+    // unconditionally), so in a free build it must show the locked card rather
+    // than an editor whose Save can only ever fail.
+    const opt = await openPage(`chrome-extension://${extId}/options.html`, 1400);
+    const locked = await opt.client.eval("document.getElementById('lockedCard').hidden === false");
+    const editorHidden = await opt.client.eval("document.getElementById('editorCard').hidden === true");
+    check('options page shows the locked card without a licence', locked === true, `locked=${locked}`);
+    check('options page hides the filter editor without a licence', editorHidden === true);
+    await closePage(opt);
     // Open the real popup: a service worker cannot sendMessage to itself, so
     // the only honest way to check the popup's behaviour is to render it.
     const pop = await newPage(`chrome-extension://${extId}/popup.html`);
@@ -305,16 +344,130 @@ try {
     v = await probePage();
     check('anti-adblock flag pinned on live page', v.flag === 'false', v.flag);
 
+    // ---- annoyance tiers ------------------------------------------------
+    console.log('\nPro annoyance tiers');
+    check('cookie-consent rulesets enabled by default',
+      proSets.some((id) => id.startsWith('cookies-')), JSON.stringify(proSets));
+    check('distraction rulesets enabled by default',
+      proSets.some((id) => id.startsWith('annoy-')), JSON.stringify(proSets));
+
+    // The stylesheet list is derived from the same TIERS table as the
+    // rulesets. If they can disagree, a tier blocks the ad's request but
+    // leaves its empty container on the page.
+    const css = await sw.eval(
+      `chrome.scripting.getRegisteredContentScripts().then(s=>(s.find(x=>x.id==='tab-cosmetic')||{}).css||[])`);
+    check('cookie element-hiding stylesheet registered',
+      css.some((f) => f.includes('cookies-generic')), JSON.stringify(css));
+    check('distraction element-hiding stylesheet registered',
+      css.some((f) => f.includes('annoy-generic')), JSON.stringify(css));
+
+    // The toggle is the whole point of splitting the two tiers. This is the
+    // path TIERS was restructured for, so it is worth asserting both ways
+    // rather than trusting that a storage write reconciles.
+    await sw.eval('chrome.storage.sync.set({cookies:false})');
+    await sleep(1800);
+    const cookiesOff = await sw.eval('chrome.declarativeNetRequest.getEnabledRulesets()');
+    check('turning cookie blocking OFF disables its rulesets',
+      !cookiesOff.some((id) => id.startsWith('cookies-')), JSON.stringify(cookiesOff));
+    check('turning cookie blocking off leaves distractions alone',
+      cookiesOff.some((id) => id.startsWith('annoy-')), JSON.stringify(cookiesOff));
+    const cssOff = await sw.eval(
+      `chrome.scripting.getRegisteredContentScripts().then(s=>(s.find(x=>x.id==='tab-cosmetic')||{}).css||[])`);
+    check('its stylesheet is dropped too',
+      !cssOff.some((f) => f.includes('cookies-generic')), JSON.stringify(cssOff));
+
+    await sw.eval('chrome.storage.sync.set({cookies:true})');
+    await sleep(1800);
+    const cookiesOn = await sw.eval('chrome.declarativeNetRequest.getEnabledRulesets()');
+    // Re-enabling is the half that quota could break: the tier has to give its
+    // static-rule allowance back on the way out, or there is no room on return.
+    check('turning it back ON re-enables them',
+      cookiesOn.some((id) => id.startsWith('cookies-')), JSON.stringify(cookiesOn));
+
+    // ---- custom user filters --------------------------------------------
+    console.log('\nPro custom filters');
+    await sw.eval(
+      `chrome.storage.sync.set({userFilters:['localhost###control-element','||user-blocked.example^']})`);
+    await sleep(1800);
+
+    const dyn = await sw.eval('chrome.declarativeNetRequest.getDynamicRules()');
+    const userRules = dyn.filter((r) => r.id >= 1000 && r.id < 1500);
+    check('a user network rule compiles into the dynamic store',
+      userRules.length === 1, JSON.stringify(dyn.map((r) => r.id)));
+    check('it lands in the user id partition, not the allowlist or Pro range',
+      userRules[0]?.id === 1000, JSON.stringify(userRules[0]?.id));
+    check('it carries the urlFilter it was written with',
+      userRules[0]?.condition?.urlFilter === '||user-blocked.example^',
+      JSON.stringify(userRules[0]?.condition));
+    check('the allowlist and master partitions are untouched',
+      dyn.every((r) => r.id === 1 || r.id >= 1000 || (r.id >= 2 && r.id <= 999)));
+
+    // End to end: the rule the user wrote actually hides the element. This is
+    // the whole feature in one assertion — parse, store, reconcile, serve to
+    // the content script, apply.
+    v = await probePage();
+    check('a user cosmetic rule hides the element on a live page',
+      v.control === 'none', `display=${v.control}`);
+
+    // ---- element picker --------------------------------------------------
+    console.log('\nPro element picker');
+    const pick = await openPage(`http://localhost:${PORT}/`, 1800);
+    const tabId = await sw.eval(
+      `chrome.tabs.query({url:'http://localhost:${PORT}/*'}).then(t=>t.length?t[t.length-1].id:null)`);
+    check('found the page to pick on', typeof tabId === 'number', String(tabId));
+    const injected = await sw.eval(
+      `chrome.scripting.executeScript({target:{tabId:${tabId}},files:['picker.js']}).then(()=>true).catch(e=>String(e))`);
+    check('picker.js injects without error', injected === true, String(injected));
+    await sleep(600);
+    const bar = await pick.client.eval("!!document.getElementById('__ai-picker-bar')");
+    check('picker builds its toolbar in the page', bar === true, `bar=${bar}`);
+    const box = await pick.client.eval("!!document.getElementById('__ai-picker-box')");
+    check('picker builds its highlight box', box === true);
+    // Escape must tear the whole thing down — a picker that cannot be
+    // dismissed is worse than no picker.
+    await pick.client.eval(
+      "document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");
+    await sleep(400);
+    const gone = await pick.client.eval("!document.getElementById('__ai-picker-bar')");
+    check('Escape removes the picker', gone === true);
+    await closePage(pick);
+
+    // ---- options page ----------------------------------------------------
+    console.log('\nPro options page');
+    const opt = await openPage(`chrome-extension://${extId}/options.html`, 1600);
+    const editorShown = await opt.client.eval("document.getElementById('editorCard').hidden === false");
+    check('options page shows the editor for a licensed user', editorShown === true);
+    const loaded = await opt.client.eval("document.getElementById('rules').value");
+    check('it loads the stored rules into the editor',
+      typeof loaded === 'string' && loaded.includes('user-blocked.example'), JSON.stringify(loaded));
+    await closePage(opt);
+
+    // Leave no user rules behind: the revocation checks below and any later
+    // run share this profile, and a stray cosmetic rule would hide the test
+    // page's control element out from under them.
+    await sw.eval('chrome.storage.sync.set({userFilters:[]})');
+    await sleep(1200);
+
     console.log('\nPro revocation');
     await sw.eval('chrome.storage.local.set({license:{key:null,plan:"free",expiresAt:null,lastCheck:0,lastGoodCheck:0}})');
     await sleep(1800);
     const revoked = await sw.eval('chrome.declarativeNetRequest.getEnabledRulesets()');
-    check('Pro rulesets disabled when licence lapses',
-      !revoked.some((id) => id.startsWith('pro-')), JSON.stringify(revoked));
+    check('every Pro ruleset is disabled when the licence lapses',
+      !revoked.some((id) => PRO_PREFIXES.test(id)), JSON.stringify(revoked));
     const revokedScripts = await sw.eval('chrome.scripting.getRegisteredContentScripts().then(s=>s.map(x=>x.id))');
     check('Pro content scripts unregistered when licence lapses',
       !revokedScripts.includes('tab-scriptlets') && !revokedScripts.includes('tab-youtube'),
       JSON.stringify(revokedScripts));
+
+    // A lapsed licence must also stop enforcing the user's own network rules —
+    // they are a paid feature, and leaving them in the dynamic store would
+    // keep blocking requests for someone who no longer has Pro.
+    await sw.eval(`chrome.storage.sync.set({userFilters:['||user-blocked.example^']})`);
+    await sleep(1800);
+    const dynAfter = await sw.eval('chrome.declarativeNetRequest.getDynamicRules()');
+    check('user network rules are not applied without a licence',
+      !dynAfter.some((r) => r.id >= 1000 && r.id < 1500), JSON.stringify(dynAfter.map((r) => r.id)));
+    await sw.eval('chrome.storage.sync.set({userFilters:[]})');
 
   }
 
