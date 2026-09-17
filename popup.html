@@ -521,7 +521,19 @@
   }
 
   .saved-flash.visible { opacity: 1; }
-</style>
+
+    /* Pro controls — reuses .row/.switch from the cards above so the toggles
+       read as the same control, not a second kind of switch. */
+    .pro-controls { margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.08); }
+    .pro-controls .row { padding: 10px 0; }
+    .pro-actions { display: flex; gap: 8px; margin-top: 4px; }
+    .pro-actions .btn { flex: 1; }
+    .pro-support {
+      display: block; margin-top: 10px; text-align: center;
+      color: var(--accent); font-size: 12px; text-decoration: none;
+    }
+    .pro-support:hover { text-decoration: underline; }
+  </style>
 </head>
 <body>
 
@@ -619,7 +631,74 @@
         </svg>
         Daily filter updates
       </li>
+      <li>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <path d="M2.5 6.2 4.8 8.5 9.5 3.5" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Cookie consent banners
+      </li>
+      <li>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <path d="M2.5 6.2 4.8 8.5 9.5 3.5" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Distraction control
+      </li>
+      <li>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <path d="M2.5 6.2 4.8 8.5 9.5 3.5" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Element picker &amp; custom filters
+      </li>
+      <li>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+          <path d="M2.5 6.2 4.8 8.5 9.5 3.5" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Priority support
+      </li>
     </ul>
+
+    <!-- Shown only once a licence is active. These are live controls, not a
+         sales list, so showing them to a free user would be an invitation to
+         click something that cannot work. -->
+    <div class="pro-controls" id="proControls" hidden>
+      <label class="row">
+        <span class="row-body">
+          <span class="row-title">Cookie consent banners</span>
+          <span class="row-sub">Hide &ldquo;we use cookies&rdquo; dialogs</span>
+        </span>
+        <span class="switch">
+          <input type="checkbox" id="cookiesToggle">
+          <span class="slider"></span>
+        </span>
+      </label>
+      <label class="row">
+        <span class="row-body">
+          <span class="row-title">Distractions</span>
+          <span class="row-sub">Floating video, newsletter &amp; survey pop-ups</span>
+        </span>
+        <span class="switch">
+          <input type="checkbox" id="annoyToggle">
+          <span class="slider"></span>
+        </span>
+      </label>
+      <div class="pro-actions">
+        <button class="btn" id="pickBtn">Block an element</button>
+        <button class="btn" id="filtersBtn">My filters</button>
+      </div>
+      <!-- The subject tag is what makes "priority" operational rather than a
+           claim: Pro mail is identifiable before it is opened. This block is
+           only rendered for a licensed user, so the tag cannot be wrong.
+           The address must match contactEmail in store-listing/web/seller.json
+           — scripts/check-pro-config.mjs fails the build if it drifts. -->
+      <a class="pro-support"
+         href="mailto:thenightwatchcaptain@gmail.com?subject=%5BPro%5D%20Ad%20Interceptor%20support%20request">
+        Priority support &mdash; email us
+      </a>
+    </div>
 
     <div class="pro-form" id="proForm">
       <input type="text" id="licenseKey" placeholder="Licence key" autocomplete="off" spellcheck="false">

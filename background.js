@@ -11,6 +11,8 @@
 //   4. Anti-adblock scriptlets (scriptlets.js)    — Pro
 //   5. YouTube ad removal      (youtube.js)       — Pro
 //   6. Server-refreshed filters into the dynamic store — Pro
+//   7. Cookie-consent + distraction rulesets       — Pro, each user-toggleable
+//   8. The user's own filter rules (picker + hand-written) — Pro
 
 import { PRO_ENABLED, PRO_TEASER } from './config.js';
 
@@ -24,6 +26,17 @@ import { PRO_ENABLED, PRO_TEASER } from './config.js';
 // store listing's "collects nothing" true of the artifact rather than merely
 // true of the running code.
 import * as licenseImpl from './license.js';
+
+// Pure helpers — no chrome.* calls, so they are unit-tested directly in node by
+// scripts/test-pro.mjs rather than only through a browser run.
+import {
+  hostCandidates,
+  parseRule,
+  checkStorable,
+  cosmeticFor as userCosmeticFor,
+  compileNetworkRules,
+  MAX_USER_RULES
+} from './userfilters.js';
 
 // Every Pro entry point goes through these, so PRO_ENABLED is checked in one
 // place and the free tier's answer is the default rather than an afterthought.
@@ -46,18 +59,35 @@ const fetchProFilters = async () => (PRO_ENABLED ? licenseImpl.fetchProFilters()
 // rules, so the two have to be partitioned by ID or they clobber each other.
 // (The v2.x allowlist code removed *every* dynamic rule on each sync — with
 // filter rules now in the same store that would wipe all 29,000 of them.)
-//   1        — master off switch
-//   2..999   — per-site allowlist
-//   1000+    — Pro server-refreshed filter rules (empty for free users)
+//   1          — master off switch
+//   2..999     — per-site allowlist
+//   1000..1499 — the user's own network rules (||host^ from options.js)
+//   1500+      — Pro server-refreshed filter rules (empty for free users)
+//
+// The ceiling is Chrome's MAX_NUMBER_OF_DYNAMIC_AND_SESSION_RULES: 30,000 from
+// Chrome 121, which is why manifest.json sets minimum_chrome_version 121. The
+// partitions are sized to total 29,999, so every store can be full at once:
+//     1 master + 998 allowlist + 500 user + 28,500 Pro = 29,999
+// Shrinking MAX_FILTER_RULES from 29,000 to 28,500 is what paid for the user
+// block; adding a partition without taking the room from somewhere would have
+// made the LAST write fail, silently and only for heavy users.
 const MASTER_OFF_RULE_ID = 1;
 const ALLOWLIST_ID_MIN = 2;
 const ALLOWLIST_ID_MAX = 999;
-const FILTER_ID_BASE = 1000;
-const MAX_FILTER_RULES = 29000;
+const USER_ID_BASE = 1000;
+const MAX_USER_NET_RULES = 500;
+const FILTER_ID_BASE = 1500;
+const MAX_FILTER_RULES = 28500;
 
 // Converted EasyList rules reach ~1,000,301 (from $important). Allow rules
 // have to outrank every one of them to be able to override anything.
 const OVERRIDE_PRIORITY = 2000000;
+
+// The user's own block rules outrank every list rule (converted EasyList tops
+// out near 1,000,301) but stay below OVERRIDE_PRIORITY, so the master switch
+// and per-site pause still beat them. A rule the user cannot switch off would
+// be worse than no rule at all.
+const USER_RULE_PRIORITY = 1500000;
 
 const COSMETIC_SCRIPT_ID = 'tab-cosmetic';
 const SCRIPTLETS_SCRIPT_ID = 'tab-scriptlets';
@@ -97,34 +127,119 @@ async function writeFilterRules(rules) {
 // Enable one at a time and stop at the first refusal: that self-corrects
 // against whatever the quota turns out to be, without this file needing to
 // know how many rules each chunk holds.
-// Ruleset ids are prefixed by tier: `filters-N` is the free ad/tracker set,
-// `pro-N` is the Adblock Warning Removal List.
-const isProRuleset = (id) => id.startsWith('pro-');
+// ---- Tiers -----------------------------------------------------------------
+// Every shipped filter tier in one table: the ruleset-id prefix it owns, the
+// cosmetic data it contributes, and the condition under which it is active.
+//
+// This exists because there are now five tiers with three different activation
+// rules, and the previous shape — an `isProRuleset()` predicate plus a `pro`
+// boolean threaded through four functions — had no room for "Pro AND the user
+// left this switch on". Adding a tier is now one row, and the ruleset sync,
+// the stylesheet list and the cosmetic lookup all read from it, so they cannot
+// disagree about what is on.
+//
+// `state` is { pro, cookies, annoyances } — see readState().
+const TIERS = [
+  { prefix: 'custom',  gate: () => true },
+  { prefix: 'filters', gate: () => true },
+  { prefix: 'pro',     gate: (st) => st.pro },
+  { prefix: 'cookies', gate: (st) => st.pro && st.cookies },
+  { prefix: 'annoy',   gate: (st) => st.pro && st.annoyances }
+];
 
-async function syncStaticRulesets(pro) {
+// Matched on `prefix-` rather than `prefix` so `custom-1` and `cookies-1` can
+// never be confused for one another.
+const tierFor = (rulesetId) => TIERS.find((t) => rulesetId.startsWith(`${t.prefix}-`));
+
+const activeTiers = (state) => TIERS.filter((t) => t.gate(state));
+
+/** Everything the tier gates depend on, read once per reconcile. */
+async function readState() {
+  const { cookies, annoyances } = await chrome.storage.sync.get({
+    // Default ON. These are the headline Pro features; a user who paid and saw
+    // nothing change until they found two switches would reasonably ask for a
+    // refund. Both are one toggle away in the popup for anyone they break.
+    cookies: true,
+    annoyances: true
+  });
+  return { pro: await isPro(), cookies, annoyances };
+}
+
+async function syncStaticRulesets(state) {
   const declared = chrome.runtime.getManifest().declarative_net_request.rule_resources;
   const enabled = new Set(await chrome.declarativeNetRequest.getEnabledRulesets());
 
-  // Pro lapsed — turn its rulesets back off before spending quota on anything.
-  const toDisable = [...enabled].filter((id) => isProRuleset(id) && !pro);
+  // Disable first, always. A tier that just lost its gate (Pro lapsed, or the
+  // user turned cookie blocking off) has to give its quota back BEFORE the
+  // loop below tries to spend it, or a toggle-off followed by a toggle-on
+  // could fail to re-enable for want of room it was still holding.
+  const wanted = new Set(
+    declared.map((r) => r.id).filter((id) => {
+      const tier = tierFor(id);
+      // An unrecognised ruleset id means the manifest and this table have
+      // drifted. Leave it alone rather than guessing at its gate.
+      return tier ? tier.gate(state) : enabled.has(id);
+    })
+  );
+
+  const toDisable = [...enabled].filter((id) => !wanted.has(id));
   if (toDisable.length) {
     await chrome.declarativeNetRequest.updateEnabledRulesets({ disableRulesetIds: toDisable });
     toDisable.forEach((id) => enabled.delete(id));
   }
 
   for (const { id } of declared) {
-    if (enabled.has(id)) continue;
-    if (isProRuleset(id) && !pro) continue;
+    if (enabled.has(id) || !wanted.has(id)) continue;
     try {
       await chrome.declarativeNetRequest.updateEnabledRulesets({ enableRulesetIds: [id] });
       enabled.add(id);
     } catch (e) {
-      console.log(`📚 Static quota reached at ${id} — ${enabled.size}/${declared.length} rulesets active`);
+      // Quota exhausted. Manifest order is quota order (see build-filters.mjs):
+      // the free ad and tracker rules are declared first, so what gets dropped
+      // here is the long tail and the Pro extras, never the core product.
+      console.log(`📚 Static quota reached at ${id} — ${enabled.size}/${wanted.size} rulesets active`);
       return enabled.size;
     }
   }
   console.log(`📚 ${enabled.size} static rulesets active`);
   return enabled.size;
+}
+
+// ---- The user's own rules --------------------------------------------------
+// Stored in storage.sync so they travel with the user's Chrome profile. Parsing
+// and validation live in userfilters.js; this only reads, compiles and applies.
+//
+// Rules are re-parsed on read rather than stored pre-parsed. Storage is the
+// user's text, and a rule that stopped being supported should fail visibly at
+// the next read instead of living on as a stale compiled object.
+async function readUserRules() {
+  const { userFilters = [] } = await chrome.storage.sync.get({ userFilters: [] });
+  const rules = [];
+  for (const text of userFilters) {
+    const res = parseRule(text);
+    if (res.ok && res.rule) rules.push(res.rule);
+  }
+  return rules;
+}
+
+async function syncUserRules(pro) {
+  const rules = pro ? await readUserRules() : [];
+  const compiled = compileNetworkRules(rules, {
+    idBase: USER_ID_BASE,
+    maxRules: MAX_USER_NET_RULES,
+    priority: USER_RULE_PRIORITY
+  });
+
+  const existing = await chrome.declarativeNetRequest.getDynamicRules();
+  // Exactly this partition — not `< FILTER_ID_BASE`, which would also take the
+  // allowlist with it, and not `>= USER_ID_BASE`, which would wipe the Pro
+  // filter block on every settings change.
+  const removeRuleIds = existing
+    .filter((r) => r.id >= USER_ID_BASE && r.id < FILTER_ID_BASE)
+    .map((r) => r.id);
+
+  await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds, addRules: compiled });
+  return compiled.length;
 }
 
 // Pro users get a server-built filter set refreshed daily, rather than waiting
@@ -276,7 +391,10 @@ function overrideRules(enabled, allowlist) {
 
 async function syncOverrideRules(enabled, allowlist) {
   const existing = await chrome.declarativeNetRequest.getDynamicRules();
-  const removeRuleIds = existing.filter((r) => r.id < FILTER_ID_BASE).map((r) => r.id);
+  // `< USER_ID_BASE`, not `< FILTER_ID_BASE`: the user's own network rules now
+  // sit between the allowlist and the Pro block, and a master-switch toggle
+  // must not delete them on its way past.
+  const removeRuleIds = existing.filter((r) => r.id < USER_ID_BASE).map((r) => r.id);
   await chrome.declarativeNetRequest.updateDynamicRules({
     removeRuleIds,
     addRules: overrideRules(enabled, allowlist)
@@ -290,7 +408,7 @@ function allowlistMatchPatterns(allowlist) {
   return allowlist.flatMap((d) => [`*://${d}/*`, `*://*.${d}/*`]);
 }
 
-async function syncContentScripts(enabled, allowlist, pro) {
+async function syncContentScripts(enabled, allowlist, state) {
   const ours = new Set([COSMETIC_SCRIPT_ID, SCRIPTLETS_SCRIPT_ID, YOUTUBE_SCRIPT_ID]);
 
   // unregisterContentScripts rejects the WHOLE call if any id in the list is
@@ -321,8 +439,10 @@ async function syncContentScripts(enabled, allowlist, pro) {
   // Pro adds the anti-adblock list's element hiding — the part that removes
   // the "turn off your ad blocker" overlay itself, as opposed to blocking the
   // script that shows it.
-  const css = ['filters/custom-generic.css', 'filters/filters-generic.css'];
-  if (pro) css.push('filters/pro-generic.css');
+  // One stylesheet per active tier, in table order. Derived rather than listed
+  // so a tier can never be enabled as a ruleset while its element hiding stays
+  // off — which would block the ad's request but leave its empty container.
+  const css = activeTiers(state).map((t) => `filters/${t.prefix}-generic.css`);
 
   const scripts = [{
     id: COSMETIC_SCRIPT_ID,
@@ -334,7 +454,7 @@ async function syncContentScripts(enabled, allowlist, pro) {
     allFrames: true
   }];
 
-  if (pro) {
+  if (state.pro) {
     // MAIN world: these patch properties the page's own scripts read, so they
     // have to live in the page's JS context, not the isolated one.
     scripts.push({
@@ -376,27 +496,32 @@ async function getCosmeticData(name) {
   return cosmeticCache.get(name);
 }
 
-/** example: news.bbc.co.uk -> [news.bbc.co.uk, bbc.co.uk, co.uk, uk] */
-function domainCandidates(hostname) {
-  const labels = hostname.split('.');
-  const out = [];
-  for (let i = 0; i < labels.length - 1; i++) out.push(labels.slice(i).join('.'));
-  return out;
-}
+// hostCandidates lives in userfilters.js and is imported here rather than
+// duplicated: the user's rules and the shipped lists must agree on what
+// "example.com also covers www.example.com" means, and two copies of that
+// function would eventually drift.
 
-async function cosmeticFor(hostname) {
-  const sources = [await getCosmeticData('custom'), await getCosmeticData('filters')];
-  if (await isPro()) sources.push(await getCosmeticData('pro'));
-
-  const candidates = domainCandidates(hostname);
+async function cosmeticFor(hostname, state) {
   const selectors = [];
   const unhide = [];
-  for (const { specific, exceptions } of sources) {
+  const candidates = hostCandidates(hostname);
+
+  for (const tier of activeTiers(state)) {
+    const { specific, exceptions } = await getCosmeticData(tier.prefix);
     for (const candidate of candidates) {
       if (specific[candidate]) selectors.push(...specific[candidate]);
       if (exceptions[candidate]) unhide.push(...exceptions[candidate]);
     }
   }
+
+  // The user's own rules go LAST so their unhide entries can cancel a shipped
+  // rule — an exception has to be able to beat the thing it excepts.
+  if (state.pro) {
+    const mine = userCosmeticFor(await readUserRules(), hostname);
+    selectors.push(...mine.selectors);
+    unhide.push(...mine.unhide);
+  }
+
   return { selectors, unhide };
 }
 
@@ -435,9 +560,88 @@ async function shouldAskForReview() {
   return blockedTotal >= REVIEW_MIN_BLOCKED;
 }
 
+// Add one rule from the picker or the options page. Everything that can go
+// wrong returns { error } for the caller to show — an add that silently does
+// nothing is the worst outcome here, because the user walks away believing the
+// element is blocked.
+async function addUserFilter(text) {
+  const res = parseRule(text);
+  if (!res.ok) return { error: res.error };
+  if (!res.rule) return { error: 'That line is a comment, not a rule.' };
+
+  const { userFilters = [] } = await chrome.storage.sync.get({ userFilters: [] });
+  if (userFilters.includes(res.rule.text)) return { error: 'You already have that rule.' };
+
+  const next = [...userFilters, res.rule.text];
+  const problem = checkStorable(next);
+  if (problem) return { error: problem };
+
+  await chrome.storage.sync.set({ userFilters: next });
+  return { ok: true, count: next.length, text: res.rule.text };
+}
+
+// Replace the whole list, from the options page's editor. Parses every line so
+// the user gets told which ones failed, and stores only the rules that
+// survived — a single typo should not cost them the other forty.
+async function setUserFilters(lines) {
+  const kept = [];
+  const errors = [];
+  for (const [i, line] of lines.entries()) {
+    const res = parseRule(line);
+    if (!res.ok) errors.push({ line: i + 1, text: String(line).trim(), error: res.error });
+    else if (res.rule && !kept.includes(res.rule.text)) kept.push(res.rule.text);
+  }
+
+  const problem = checkStorable(kept);
+  if (problem) return { error: problem, errors };
+
+  await chrome.storage.sync.set({ userFilters: kept });
+  return { ok: true, count: kept.length, filters: kept, errors };
+}
+
 const HANDLERS = {
-  'cosmetic:get': (msg, sender) =>
-    cosmeticFor(msg.hostname || (sender.url ? new URL(sender.url).hostname : '')),
+  'cosmetic:get': async (msg, sender) =>
+    cosmeticFor(
+      msg.hostname || (sender.url ? new URL(sender.url).hostname : ''),
+      await readState()
+    ),
+
+  'settings:get': async () => {
+    const state = await readState();
+    const { userFilters = [] } = await chrome.storage.sync.get({ userFilters: [] });
+    return { ...state, available: PRO_ENABLED, filterCount: userFilters.length, max: MAX_USER_RULES };
+  },
+
+  'userfilters:list': async () => {
+    const { userFilters = [] } = await chrome.storage.sync.get({ userFilters: [] });
+    return { filters: userFilters, max: MAX_USER_RULES };
+  },
+
+  'userfilters:add': async (msg) => {
+    // Checked here rather than only in the UI: this handler is reachable from
+    // any injected picker, and entitlement is not the caller's to assert.
+    if (!(await isPro())) return { error: 'Custom filters need Pro.' };
+    return addUserFilter(msg.text);
+  },
+
+  'userfilters:set': async (msg) => {
+    if (!(await isPro())) return { error: 'Custom filters need Pro.' };
+    return setUserFilters(Array.isArray(msg.lines) ? msg.lines : []);
+  },
+
+  // The picker is injected on demand, never registered — see picker.js.
+  'picker:start': async (msg) => {
+    if (!PRO_ENABLED || !(await isPro())) return { error: 'The element picker needs Pro.' };
+    if (msg.tabId == null) return { error: 'No page to pick from.' };
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: msg.tabId }, files: ['picker.js'] });
+      return { ok: true };
+    } catch (e) {
+      // chrome://, the Web Store, PDF viewer, and any page the user has not
+      // granted host access to. Say so plainly instead of failing silently.
+      return { error: 'This page does not allow extensions to run.' };
+    }
+  },
 
   'license:status': async () => ({
     ...(await licenseStatus()),
@@ -488,10 +692,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // ----------------------------
 async function refreshAll() {
   const { ads, allowlist } = await chrome.storage.sync.get({ ads: true, allowlist: [] });
-  const pro = await isPro();
-  await syncStaticRulesets(pro);
+  const state = await readState();
+  await syncStaticRulesets(state);
   await syncOverrideRules(ads, allowlist);
-  await syncContentScripts(ads, allowlist, pro);
+  await syncUserRules(state.pro);
+  await syncContentScripts(ads, allowlist, state);
 }
 
 // v2.x ("Data Saver") shipped image/video blocking. Users upgrading still have
@@ -545,6 +750,14 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   //
   // Note Chrome de-duplicates: writing a value identical to the stored one
   // fires nothing. Never rely on a no-op write to force a reconcile.
-  if (areaName === 'sync' && (changes.ads || changes.allowlist)) refreshAll();
+  // cookies/annoyances change which static rulesets and stylesheets belong on;
+  // userFilters changes the dynamic rules and the cosmetic reply. All of them
+  // have to reconcile, and forgetting one shows up as a toggle that appears to
+  // do nothing until the next browser restart.
+  if (areaName === 'sync' &&
+      (changes.ads || changes.allowlist || changes.cookies ||
+       changes.annoyances || changes.userFilters)) {
+    refreshAll();
+  }
   if (areaName === 'local' && changes.license) refreshAll();
 });

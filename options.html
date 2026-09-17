@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Ad Interceptor — My filters</title>
+<style>
+  /* Tokens copied from popup.html rather than shared through a stylesheet.
+     Two small files with the same palette cost less than a third file that
+     both must load, and the popup's CSS is inline for a first-paint reason
+     that does not apply here. Keep the two in step by hand — they are only
+     tokens, and they change about once a year. */
+  :root {
+    --bg: #0D0D10; --surface: #16161C; --surface-2: #1E1E26;
+    --border: rgba(255,255,255,0.07); --border-strong: rgba(255,255,255,0.12);
+    --text: #F4F4F7; --text-muted: #8A8A96; --text-faint: #5E5E6B;
+    --accent: #A855F7; --accent-soft: rgba(168,85,247,0.14);
+    --good: #34D399; --danger: #FB7185; --radius: 14px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #FFFFFF; --surface: #F8F8FB; --surface-2: #F1F1F6;
+      --border: rgba(0,0,0,0.07); --border-strong: rgba(0,0,0,0.12);
+      --text: #141418; --text-muted: #6B6B77; --text-faint: #90909C;
+      --accent: #7C3AED; --accent-soft: rgba(124,58,237,0.09);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 40px 24px; background: var(--bg); color: var(--text);
+    font: 14px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 680px; margin: 0 auto; }
+
+  h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--text-muted); margin: 0 0 28px; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px; margin-bottom: 18px;
+  }
+
+  label.field { display: block; font-weight: 600; margin-bottom: 8px; }
+
+  textarea {
+    width: 100%; min-height: 260px; resize: vertical;
+    background: var(--surface-2); color: var(--text);
+    border: 1px solid var(--border-strong); border-radius: 10px; padding: 12px;
+    font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .meter { display: flex; justify-content: space-between; gap: 12px;
+           color: var(--text-faint); font-size: 12px; margin-top: 8px; }
+  .meter.over { color: var(--danger); }
+
+  .actions { display: flex; gap: 10px; align-items: center; margin-top: 14px; }
+  .btn {
+    border: 1px solid var(--border-strong); background: var(--surface-2);
+    color: var(--text); border-radius: 9px; padding: 9px 16px;
+    font: 600 13px system-ui, sans-serif; cursor: pointer;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+
+  .msg { font-size: 13px; }
+  .msg.ok { color: var(--good); }
+  .msg.err { color: var(--danger); }
+
+  .errors { margin: 14px 0 0; padding: 12px; border-radius: 10px;
+            background: rgba(251,113,133,0.08); border: 1px solid rgba(251,113,133,0.25); }
+  .errors ul { margin: 6px 0 0; padding-left: 18px; }
+  .errors li { color: var(--text); font-size: 13px; margin-bottom: 4px; }
+  .errors code { color: var(--danger); font-family: ui-monospace, monospace; }
+
+  .help dt { font-family: ui-monospace, monospace; color: var(--accent);
+             font-size: 13px; margin-top: 12px; }
+  .help dd { margin: 2px 0 0; color: var(--text-muted); font-size: 13px; }
+  .help dl { margin: 0; }
+
+  .locked { color: var(--text-muted); }
+  .locked strong { color: var(--text); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>My filters</h1>
+    <p class="sub">Your own blocking rules. One per line. They sync with your Chrome profile.</p>
+
+    <!-- Shown instead of the editor when there is no active licence. -->
+    <div class="card locked" id="lockedCard" hidden>
+      <strong>Custom filters need Pro.</strong>
+      <p style="margin:6px 0 0">Activate a licence key from the extension popup to use the element
+      picker and write your own rules.</p>
+    </div>
+
+    <div id="editorCard" hidden>
+      <div class="card">
+        <label class="field" for="rules">Rules</label>
+        <textarea id="rules" spellcheck="false" autocomplete="off"
+                  placeholder="example.com##.sponsored-block&#10;||ads.example.com^"></textarea>
+        <div class="meter" id="meter"><span id="countText">—</span><span id="byteText"></span></div>
+
+        <div class="actions">
+          <button class="btn btn-primary" id="saveBtn">Save</button>
+          <button class="btn" id="revertBtn">Revert</button>
+          <span class="msg" id="message"></span>
+        </div>
+
+        <div class="errors" id="errorBox" hidden>
+          <strong>These lines were not saved:</strong>
+          <ul id="errorList"></ul>
+        </div>
+      </div>
+
+      <div class="card help">
+        <label class="field">Syntax</label>
+        <dl>
+          <dt>example.com##.ad-slot</dt>
+          <dd>Hide anything matching <code>.ad-slot</code> on example.com and its subdomains.</dd>
+          <dt>##.ad-slot</dt>
+          <dd>Hide it on every site. Powerful and easy to overdo — prefer a domain.</dd>
+          <dt>a.com,b.com##.promo</dt>
+          <dd>Hide on either site.</dd>
+          <dt>example.com#@#.promo</dt>
+          <dd>The opposite: cancel a built-in rule that hides <code>.promo</code> here.
+              Use this when the blocker is hiding something you want.</dd>
+          <dt>||ads.example.com^</dt>
+          <dd>Block every request to that host.</dd>
+          <dt>! a note to yourself</dt>
+          <dd>A comment. Not saved.</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+  <script src="options.js"></script>
+</body>
+</html>

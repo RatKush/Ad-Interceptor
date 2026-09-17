@@ -52,6 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initMasterToggle();
   initSiteToggle();
   initPro();
+  initProControls();
   initStats();
   initReviewPrompt();
 });
@@ -198,6 +199,10 @@ function initPro() {
     badge.classList.toggle('active', active);
     form.hidden = active;
     removeBtn.hidden = !active;
+    // The toggles and the picker only exist for a licensed user. Driven from
+    // the same `status` as the badge so the card cannot show "Inactive" and a
+    // working element picker at the same time.
+    document.getElementById('proControls').hidden = !active;
   }
 
   send('license:status').then(renderPro);
@@ -229,6 +234,52 @@ function initPro() {
     const res = await send('license:clear');
     say('Licence removed.', false);
     renderPro(res?.status);
+  });
+}
+
+// ----------------------------
+// ⚙️ Pro controls
+// ----------------------------
+// The two annoyance toggles and the two custom-filter actions.
+//
+// Same division of labour as the rest of this file: the toggles only write to
+// storage.sync, and background.js reacts by enabling or disabling the matching
+// static rulesets and stylesheets (see TIERS). The popup never touches a rule.
+function initProControls() {
+  const cookiesToggle = document.getElementById('cookiesToggle');
+  const annoyToggle = document.getElementById('annoyToggle');
+  const pickBtn = document.getElementById('pickBtn');
+  const filtersBtn = document.getElementById('filtersBtn');
+
+  chrome.storage.sync.get({ cookies: true, annoyances: true }, ({ cookies, annoyances }) => {
+    cookiesToggle.checked = cookies;
+    annoyToggle.checked = annoyances;
+  });
+
+  cookiesToggle.addEventListener('change', () =>
+    chrome.storage.sync.set({ cookies: cookiesToggle.checked }));
+  annoyToggle.addEventListener('change', () =>
+    chrome.storage.sync.set({ annoyances: annoyToggle.checked }));
+
+  filtersBtn.addEventListener('click', () => {
+    chrome.runtime.openOptionsPage();
+    window.close();
+  });
+
+  pickBtn.addEventListener('click', () => {
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      const tabId = tabs && tabs[0] ? tabs[0].id : null;
+      const res = await send('picker:start', { tabId });
+      // The picker takes over the page, so the popup has to go — but only once
+      // we know it actually started. Closing first would hide the one place
+      // the "this page does not allow extensions" message can be shown.
+      if (res?.error) {
+        pickBtn.textContent = res.error;
+        pickBtn.disabled = true;
+        return;
+      }
+      window.close();
+    });
   });
 }
 
