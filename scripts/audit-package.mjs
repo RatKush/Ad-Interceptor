@@ -81,8 +81,21 @@ for (const name of readdirSync(stage)) {
   }
 }
 
-for (const f of ['scriptlets.js', 'youtube.js']) {
+for (const f of ['scriptlets.js', 'youtube.js', 'picker.js']) {
   if (existsSync(path.join(stage, f))) problems.push(`${f} present in a free build`);
+}
+
+// Pro filter DATA must not ship in a free build either. It is not executable,
+// so the URL scan above skips it — but a free package carrying the cookie and
+// distraction rulesets would be giving away the thing Pro is sold on, and a
+// manifest that declares them while package.sh strips the entries is a
+// mismatch worth catching here rather than in a store review.
+for (const dir of ['rules', 'filters']) {
+  const d = path.join(stage, dir);
+  if (!existsSync(d)) continue;
+  for (const name of readdirSync(d)) {
+    if (/^(pro|cookies|annoy)-/.test(name)) problems.push(`${dir}/${name} present in a free build`);
+  }
 }
 
 const lic = path.join(stage, 'license.js');

@@ -30,8 +30,24 @@ fi
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 
+# Runs in BOTH modes. In a free build it only checks that background.js's TIERS
+# and the PRO_PREFIXES below agree about which rulesets are Pro — a mismatch
+# there ships a manifest declaring a ruleset the package omits, which makes the
+# extension fail to load outright.
+node scripts/check-pro-config.mjs
+
 # --- always shipped ---------------------------------------------------------
+# userfilters.js is imported STATICALLY by background.js, so like license.js it
+# has to exist in every build or the service worker fails to load. Unlike
+# license.js it needs no stub: it is pure parsing with no network code, so the
+# real module is safe in a free package and passes the audit unchanged.
+#
+# options.html/options.js ship in every build too, because manifest.json
+# declares options_ui unconditionally and Chrome errors on a declared page that
+# is absent. In a free build the page renders its "needs Pro" card instead of
+# the editor.
 cp manifest.json background.js config.js popup.html popup.js cosmetic.js \
+   userfilters.js options.html options.js \
    ATTRIBUTION.md "$STAGE/"
 cp -R icons "$STAGE/"
 
@@ -50,14 +66,15 @@ cp filters/custom-generic.css filters/custom-cosmetic.json \
 
 # --- Pro only ---------------------------------------------------------------
 if [ "$PRO" = "true" ]; then
-  # Mirror image of the free build's audit: a Pro build talks to a server, so
-  # assert the server address is real before packaging. This is what makes a
-  # repeat of the api.example.com placeholders impossible.
-  node scripts/check-pro-config.mjs
+  # (check-pro-config.mjs already ran above — in a Pro build it also asserts
+  # API_BASE points at a real https host, which is what makes a repeat of the
+  # api.example.com placeholders impossible.)
 
-  cp license.js scriptlets.js youtube.js "$STAGE/"
-  cp rules/pro-*.json "$STAGE/rules/"
-  cp filters/pro-generic.css filters/pro-cosmetic.json "$STAGE/filters/"
+  cp license.js scriptlets.js youtube.js picker.js "$STAGE/"
+  cp rules/pro-*.json rules/cookies-*.json rules/annoy-*.json "$STAGE/rules/"
+  cp filters/pro-generic.css filters/pro-cosmetic.json \
+     filters/cookies-generic.css filters/cookies-cosmetic.json \
+     filters/annoy-generic.css filters/annoy-cosmetic.json "$STAGE/filters/"
 else
   # background.js imports './license.js' statically (dynamic import is
   # disallowed in service workers), so the file must exist — ship the stub,
@@ -81,14 +98,21 @@ if s2 == s and "API_BASE = ''" not in s:
 open(p, 'w').write(s2)
 PYCFG
 
-  # Drop the pro-* rulesets from the packaged manifest — declaring a ruleset
+  # Drop every Pro ruleset from the packaged manifest — declaring a ruleset
   # whose file is absent makes the extension fail to load outright.
+  #
+  # The prefix list must stay in step with TIERS in background.js. A tier added
+  # there but forgotten here ships a free build that will not load at all,
+  # which is why check-pro-config.mjs asserts the two agree.
   python3 - "$STAGE/manifest.json" <<'PY'
 import json, sys
+PRO_PREFIXES = ('pro-', 'cookies-', 'annoy-')
 p = sys.argv[1]
 m = json.load(open(p))
 rr = m['declarative_net_request']['rule_resources']
-m['declarative_net_request']['rule_resources'] = [r for r in rr if not r['id'].startswith('pro-')]
+m['declarative_net_request']['rule_resources'] = [
+    r for r in rr if not r['id'].startswith(PRO_PREFIXES)
+]
 json.dump(m, open(p, 'w'), indent=2)
 PY
 fi
