@@ -781,10 +781,23 @@ export default {
         const body = await request.json().catch(() => ({}));
         const now = Date.now();
         const key = generateKey();
+        // provider is named EXPLICITLY, and is 'admin' rather than any vendor.
+        //
+        // The column carries DEFAULT 'paddle' from migration 004, which is
+        // correct for what it was for — labelling the rows that already
+        // existed when the rename ran, all of which the Paddle integration
+        // did create. It is wrong for anything new. Leaving it off here
+        // attributed every comp, support and test key to a company that
+        // refused the account on 2026-09-10 and never processed a payment.
+        //
+        // 'admin' is also more honest than naming the current provider: these
+        // keys were not sold by anyone, so no provider should be able to claim
+        // them, and a later refund or dispute reconciliation must not expect
+        // to find a matching transaction.
         await env.DB.prepare(
           `INSERT INTO licenses
-             (key, plan, status, expires_at, activation_limit, email, created_at, updated_at)
-           VALUES (?, 'pro', 'active', ?, ?, ?, ?, ?)`
+             (key, plan, status, expires_at, activation_limit, email, provider, created_at, updated_at)
+           VALUES (?, 'pro', 'active', ?, ?, ?, 'admin', ?, ?)`
         ).bind(key, body.expiresAt ?? null, body.activationLimit ?? 3, body.email ?? null, now, now).run();
 
         return json({ ok: true, key });
