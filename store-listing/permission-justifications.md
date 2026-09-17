@@ -60,8 +60,13 @@ else is bundled in.
 > - the date the extension was installed, and a flag recording that the
 >   one-time "rate this extension" prompt has already been shown, so the
 >   user is never asked twice;
-> - for Pro users only, their licence key and its status, plus a random
->   installation identifier used to enforce the per-licence device limit.
+> - for Pro users only: their licence key and its status, a random
+>   installation identifier used to enforce the per-licence device limit,
+>   two on/off switches for the optional cookie-notice and distraction
+>   filters, and any filter rules the user has written themselves (again
+>   chrome.storage.sync, so their own rules follow their profile). A
+>   user-written rule is a CSS selector or a domain the user typed or
+>   picked on screen; it is their input, not a record of their browsing.
 >
 > None of this leaves the device except the licence key, which is covered
 > below. There is no identifier of any kind in the free version, and nothing
@@ -71,9 +76,14 @@ else is bundled in.
 code actually writes, and an undeclared key reads as concealment rather than
 an oversight. Everything the free build writes is visible in one grep:
 `chrome.storage.(sync|local).set` across background.js, popup.js and
-cosmetic.js. As of v3.2 that is: `ads`, `allowlist`, `blockedTotal`,
-`installedAt`, `reviewAsked` — plus `proFiltersAt` and `installId` in Pro
-builds only.
+cosmetic.js. As of v3.3 that is: `ads`, `allowlist`, `blockedTotal`,
+`installedAt`, `reviewAsked` — plus `proFiltersAt`, `installId`, `cookies`,
+`annoyances` and `userFilters` in Pro builds only.
+
+The three keys added in v3.3 (`cookies`, `annoyances`, `userFilters`) are
+written only from the Pro controls in the popup and the options page, both of
+which are unreachable without an active licence. The free build reads their
+defaults and never writes them.
 
 ## Permission: scripting
 
@@ -82,7 +92,18 @@ builds only.
 > further scripts run only for Pro users: one that neutralises
 > "disable your ad blocker" detection, and one on YouTube that removes
 > advertising entries from the player's response so ads are not
-> requested. These scripts modify the page only; they collect nothing.
+> requested. A third, the element picker, is not registered at all: it is
+> injected into the current tab only when a Pro user clicks "Block an
+> element", and it removes itself when they finish or press Escape. All of
+> these scripts modify the page only; they collect nothing.
+
+### If a reviewer asks about the element picker
+
+> It runs in the isolated world, not the page's, because it only reads the
+> DOM to work out which element the user is pointing at. It is injected on
+> an explicit click, on that one tab, and the only thing it sends back is
+> the CSS selector the user chose. It does not read page content, form
+> fields, or anything the user has not clicked on.
 
 ### If a reviewer asks about MAIN-world injection
 

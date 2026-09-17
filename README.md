@@ -19,10 +19,49 @@ Blocking layers:
 | Anti-adblock rules | `rules/pro-1.json` + `filters/pro-generic.css` | 2,512 + 144 selectors / 428 domains | Pro |
 | Anti-adblock scriptlets | `scriptlets.js` (MAIN world) | generic flag pinning | Pro |
 | YouTube ad removal | `youtube.js` (MAIN world) | — | Pro |
+| Cookie consent banners | `cookies-*` rulesets | `cookies-generic.css` + per-domain | Pro, toggleable |
+| Distraction control | `annoy-*` rulesets | `annoy-generic.css` + per-domain | Pro, toggleable |
+| Element picker | — | `picker.js`, injected on demand | Pro |
+| Custom user filters | dynamic store (ids 1000–1499) | merged into `cosmetic:get` | Pro |
 | Daily filter refresh | server-delivered, `license.js` | additive, dynamic store | Pro |
 
 Plus a **per-site pause**, and a master on/off — both implemented as
 high-priority `allowAllRequests` rules so toggling is instant.
+
+### Filter tiers
+
+`background.js` holds one `TIERS` table naming every shipped tier, the
+ruleset-id prefix it owns and the condition under which it is on:
+
+| Prefix | Source list | Active when |
+|---|---|---|
+| `custom-` | `filters/custom.txt` (ours) | always |
+| `filters-` | EasyList + EasyPrivacy | always |
+| `pro-` | Adblock Warning Removal List | Pro |
+| `cookies-` | Easylist Cookie List | Pro **and** the user's cookie toggle |
+| `annoy-` | Fanboy's Annoyance List | Pro **and** the user's distraction toggle |
+
+The ruleset sync, the content-script stylesheet list and the cosmetic lookup
+all read from that one table, so they cannot disagree about what is enabled.
+Manifest order is quota order: the free rulesets are declared first, so when
+Chrome's static-rule pool runs out it is the Pro extras that are dropped, never
+ad blocking itself.
+
+### The dynamic rule store
+
+One flat store, partitioned by id — the partitions total 29,999, one below
+Chrome 121's 30,000 ceiling, so every partition can be full at once:
+
+| Ids | Holds | Cap |
+|---|---|---|
+| 1 | master off switch | 1 |
+| 2–999 | per-site allowlist | 998 |
+| 1000–1499 | the user's own `\|\|host^` rules | 500 |
+| 1500+ | Pro server-refreshed filters | 28,500 |
+
+Each writer must remove **only** its own range. `syncOverrideRules` clearing
+`< FILTER_ID_BASE` instead of `< USER_ID_BASE` would silently delete every
+custom rule on any settings change.
 
 ## Pro
 
@@ -32,8 +71,14 @@ That flag is the whole switch, and it is a *build-time* one, not just a UI
 toggle. With it false:
 
 - `scripts/package.sh` ships `license-stub.js` as `license.js` — same API, no
-  URLs, no `fetch()` — and omits `scriptlets.js`, `youtube.js` and every
-  `pro-*` ruleset from the .zip and from the packaged manifest
+  URLs, no `fetch()` — and omits `scriptlets.js`, `youtube.js`, `picker.js` and
+  every `pro-*`, `cookies-*` and `annoy-*` ruleset from the .zip and from the
+  packaged manifest
+- `scripts/check-pro-config.mjs` runs in **both** modes and fails the build if
+  `background.js`'s `TIERS` table and `package.sh`'s `PRO_PREFIXES` disagree
+  about which rulesets are Pro. A tier gated in one place but not stripped in
+  the other ships a manifest declaring a ruleset the package omits, and Chrome
+  then refuses to load the extension at all
 - `scripts/audit-package.mjs` fails the build if any shipped code contains an
   external URL, a `fetch()` to a non-packaged target, `XMLHttpRequest`,
   `sendBeacon` or `WebSocket`

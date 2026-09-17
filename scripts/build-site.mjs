@@ -120,6 +120,12 @@ const tokens = {
   ruleCount: group(counts.freeNetwork),
   ruleCountRounded: `${group(Math.floor(counts.freeNetwork / 1000) * 1000)}+`,
   cosmeticCount: group(counts.cosmeticGeneric),
+  // Pro annoyance counts, same rule as every other figure on the site: derived
+  // from the last build, never typed into the page. `?? 0` covers a
+  // counts.json written before these tiers existed, so an old file degrades to
+  // a visible zero rather than the string "undefined".
+  cookieCount: group((counts.cookieNetwork ?? 0) + (counts.cookieCosmetic ?? 0)),
+  annoyCount: group((counts.annoyNetwork ?? 0) + (counts.annoyCosmetic ?? 0)),
   // Rendered into the page as a JS boolean, so the checkout can degrade to a
   // "contact us" state rather than throwing when it is not configured yet.
   checkoutEnabled: Boolean(seller.dodoProductId && seller.dodoCheckoutBase),
