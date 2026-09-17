@@ -233,3 +233,19 @@ export const REVOKING_EVENTS = new Set([
   'subscription.expired',
   'refund.succeeded'
 ]);
+
+/** A plan change or un-pause: restore access and move the expiry forward. */
+export const RESTORING_EVENTS = new Set([
+  'subscription.updated',
+  'subscription.unpaused'
+]);
+
+/**
+ * Money actually returned, as opposed to a subscription merely ending.
+ * A subset of REVOKING_EVENTS: a refund revokes IMMEDIATELY, where a
+ * cancellation lets the paid-for period run out.
+ */
+export const REFUND_EVENTS = new Set(['refund.succeeded']);
+
+/** Chargebacks. Named as a predicate because Dodo has several dispute.* types. */
+export const isDispute = (type) => String(type).startsWith('dispute.');

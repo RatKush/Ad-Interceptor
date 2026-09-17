@@ -17,20 +17,61 @@
 // customers a clean path, and it does not pretend to be DRM.
 
 import { generateKey, normalizeKey } from './keys.js';
-import {
-  verifyAgainstAnySecret,
-  extractSubject,
-  readWebhookHeaders,
-  GRANTING_EVENTS,
-  SUSPENDING_EVENTS,
-  REVOKING_EVENTS
-} from './dodo.js';
+import * as dodo from './dodo.js';
+import * as paypal from './paypal.js';
 import { sendLicenceKey } from './mail.js';
 
-// Which payment provider these rows belong to. Stored per row rather than
-// assumed, because this is the SECOND provider: Paddle refused the account on
-// 2026-09-10 over its ad-blocker policy. See migrations/004-provider-neutral.
-const PROVIDER = 'dodo';
+// ---------------------------------------------------------------------------
+// Payment providers
+// ---------------------------------------------------------------------------
+// Which provider a row belongs to is STORED, not assumed — see
+// migrations/004-provider-neutral. This table is the other half of that: one
+// descriptor per provider, so handleWebhook contains no provider name and no
+// provider-specific event string at all.
+//
+// Why a table and not an if: this is the THIRD provider this code has served.
+// Paddle refused the account on 2026-09-10, Dodo refused it on 2026-09-11, and
+// PayPal approved it on 2026-09-17. Each migration previously meant editing the
+// dispatch itself; now it means adding a row and a route.
+//
+// Dodo's descriptor is kept although the account was declined. It is the only
+// integration that has ever been exercised end to end against a real sandbox
+// purchase, so it stays as the reference shape — and deleting a working
+// provider to make room for an unproven one is not an improvement.
+const ADAPTERS = {
+  dodo: {
+    provider: 'dodo',
+    module: dodo,
+    // Dodo signs with HMAC over the raw body; both secret slots are tried so
+    // test and live endpoints can coexist and secrets can be rotated.
+    verify: (raw, request, env) =>
+      dodo.verifyAgainstAnySecret(raw, dodo.readWebhookHeaders(request), {
+        DODO_WEBHOOK_SECRET: env.DODO_WEBHOOK_SECRET,
+        DODO_WEBHOOK_SECRET_TEST: env.DODO_WEBHOOK_SECRET_TEST
+      }),
+    // The event id is a HEADER for Dodo, so extract needs the request.
+    extract: (event, request) => dodo.extractSubject(event, dodo.readWebhookHeaders(request).id),
+    enrich: null // every Dodo payload is already complete
+  },
+
+  paypal: {
+    provider: 'paypal',
+    module: paypal,
+    // PayPal signs with RSA against a rotating cert, so verification is an API
+    // call rather than a local comparison. See the note in paypal.js.
+    verify: (raw, request, env) =>
+      paypal.verifyAgainstAnyWebhookId(raw, paypal.readWebhookHeaders(request), env, {
+        PAYPAL_WEBHOOK_ID: env.PAYPAL_WEBHOOK_ID,
+        PAYPAL_WEBHOOK_ID_TEST: env.PAYPAL_WEBHOOK_ID_TEST
+      }),
+    // PayPal's event id is in the BODY, so the request is unused here.
+    extract: (event) => paypal.extractSubject(event),
+    // Renewal events carry neither the next billing date nor the subscriber
+    // email; without this a licence lapses on its first anniversary while
+    // PayPal keeps charging. See enrichFromApi.
+    enrich: (env, subject) => paypal.enrichFromApi(env, subject)
+  }
+};
 
 const FILTERS_KV_KEY = 'pro-filters:latest';
 const ACTIVATION_TTL_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
@@ -146,7 +187,7 @@ async function evaluateKey(env, rawKey, installId, version) {
 // Dodo Payments webhook
 // ---------------------------------------------------------------------------
 
-async function issueKeyFor(env, subject) {
+async function issueKeyFor(env, subject, provider) {
   const now = Date.now();
 
   // Idempotency at the subscription level: Dodo sends subscription.active and
@@ -156,7 +197,7 @@ async function issueKeyFor(env, subject) {
     const existing = await env.DB.prepare(
       `SELECT key, provider_payment_id, expires_at FROM licenses
         WHERE provider = ? AND provider_subscription_id = ?`
-    ).bind(PROVIDER, subject.subscriptionId).first();
+    ).bind(provider, subject.subscriptionId).first();
 
     if (existing) {
       // One purchase produces several events and their order is not
@@ -232,7 +273,7 @@ async function issueKeyFor(env, subject) {
     key,
     toEpochMs(subject.nextBilledAt),
     email,
-    PROVIDER,
+    provider,
     subject.customerId,
     subject.subscriptionId,
     subject.transactionId,
@@ -248,7 +289,7 @@ async function issueKeyFor(env, subject) {
     const winner = await env.DB.prepare(
       `SELECT key, provider_payment_id FROM licenses
         WHERE provider = ? AND provider_subscription_id = ?`
-    ).bind(PROVIDER, subject.subscriptionId).first();
+    ).bind(provider, subject.subscriptionId).first();
 
     if (winner) {
       // Whichever row won, make sure the identifiers this event carried end
@@ -270,33 +311,25 @@ async function issueKeyFor(env, subject) {
   return key;
 }
 
-async function handleWebhook(request, env, ctx) {
+async function handleWebhook(request, env, ctx, adapter) {
   // There is no source-IP pre-filter here, unlike the Paddle integration.
-  // Paddle published a fetchable list of sender addresses; Dodo does not, and
-  // an allowlist that cannot be sourced is not a control. The HMAC signature
-  // was always the real defence — the IP check was only there to reject noise
+  // Paddle published a fetchable list of sender addresses; neither Dodo nor
+  // PayPal does, and an allowlist that cannot be sourced is not a control. The
+  // signature was always the real defence — the IP check only rejected noise
   // before spending crypto — so nothing load-bearing is lost.
 
-  // Must be the raw body — re-serialising the parsed JSON changes the bytes
-  // and the HMAC will never match.
+  // Must be the raw body. Dodo HMACs these exact bytes; PayPal checksums them.
+  // Re-serialising the parsed JSON reorders keys and both checks then fail.
   const raw = await request.text();
 
-  // The event id is a HEADER for Dodo (Standard Webhooks), not a body field
-  // as it was for Paddle. It is also part of the signed content.
-  const headers = readWebhookHeaders(request);
-
-  // Both slots are tried. Test and live endpoints have separate secrets, so a
-  // single slot would mean setting the live secret breaks test deliveries the
-  // same minute. It also gives rotation for free. See verifyAgainstAnySecret.
-  const verified = await verifyAgainstAnySecret(raw, headers, {
-    DODO_WEBHOOK_SECRET: env.DODO_WEBHOOK_SECRET,
-    DODO_WEBHOOK_SECRET_TEST: env.DODO_WEBHOOK_SECRET_TEST
-  });
+  // How this is verified is the adapter's business: Dodo compares an HMAC
+  // locally, PayPal asks PayPal. Both return the same {ok, reason, matched}.
+  const verified = await adapter.verify(raw, request, env);
   if (!verified.ok) {
-    console.log(`webhook rejected: ${verified.reason}`);
+    console.log(`${adapter.provider} webhook rejected: ${verified.reason}`);
     return json({ error: 'invalid signature' }, 401);
   }
-  console.log(`webhook signature verified via ${verified.matched}`);
+  console.log(`${adapter.provider} webhook signature verified via ${verified.matched}`);
 
   let event;
   try {
@@ -305,11 +338,14 @@ async function handleWebhook(request, env, ctx) {
     return json({ error: 'invalid json' }, 400);
   }
 
-  const subject = extractSubject(event, headers.id);
-  if (!subject.eventId) return json({ error: 'missing webhook-id' }, 400);
+  // Dodo puts the event id in a header, PayPal in the body. The adapter knows
+  // which; everything below only ever sees subject.eventId.
+  let subject = adapter.extract(event, request);
+  if (!subject.eventId) return json({ error: 'missing event id' }, 400);
 
-  // Replay guard. Dodo retries on any non-2xx, so a duplicate delivery is
-  // normal traffic, not an attack — swallow it with a 200 or it retries forever.
+  // Replay guard. Both providers retry on any non-2xx, so a duplicate delivery
+  // is normal traffic, not an attack — swallow it with a 200 or it retries
+  // forever. (PayPal retries for up to three days on an escalating schedule.)
   const seen = await env.DB.prepare(
     'SELECT event_id FROM webhook_events WHERE event_id = ?'
   ).bind(subject.eventId).first();
@@ -318,32 +354,40 @@ async function handleWebhook(request, env, ctx) {
   // NOTE: the ledger row is written AFTER the event is acted on, at the bottom
   // of this function. Writing it here — which is what this code used to do —
   // silently loses events: if the branches below throw, the outer handler
-  // returns 500, Dodo retries, the retry matches the dedup check above and
-  // gets a 200 with duplicate:true. Dodo then marks the event delivered and
-  // stops. The result is a customer who paid and whose key was never minted,
-  // with nothing anywhere reporting a failure.
+  // returns 500, the provider retries, the retry matches the dedup check above
+  // and gets a 200 with duplicate:true. The provider then marks the event
+  // delivered and stops. The result is a customer who paid and whose key was
+  // never minted, with nothing anywhere reporting a failure.
   //
   // Recording last means a crash between acting and recording causes a REPLAY
   // instead, which is safe: issueKeyFor dedupes on the subscription id and
   // every other branch is an idempotent UPDATE. At-least-once processing with
   // idempotent handlers beats mark-then-lose.
 
+  // Fill in anything the payload could not carry, now that we know this is a
+  // real event we have not already handled. Deliberately AFTER the replay
+  // guard: enrichment costs a round trip to the provider, and a retry storm
+  // should not multiply that. PayPal needs it on every renewal; Dodo never
+  // does, and declares `enrich: null` rather than paying for a no-op.
+  if (adapter.enrich) subject = await adapter.enrich(env, subject);
+
   const now = Date.now();
   const type = String(subject.eventType ?? '');
   let issuedKey = null;
 
-  // Dispatch on the event SETS from dodo.js rather than a switch, because Dodo
-  // has 26 event types where Paddle's integration handled 9, and most of them
-  // mean the same three things. The sets are asserted non-overlapping in
-  // test/dodo-signature.mjs.
-  if (GRANTING_EVENTS.has(type)) {
+  // Dispatch on the adapter's event SETS rather than a switch. Dodo has 26
+  // event types and PayPal has its own naming entirely, but between them they
+  // mean the same five things, so the provider names live in the adapter
+  // modules and this dispatch contains none of them. The sets are asserted
+  // non-overlapping in test/dodo-signature.mjs and test/paypal-events.mjs.
+  if (adapter.module.GRANTING_EVENTS.has(type)) {
     // subscription.active (first purchase), subscription.renewed (each year)
     // and payment.succeeded all mean "paid". They arrive concurrently for one
     // purchase; issueKeyFor is idempotent on the subscription id and extends
     // the expiry on renewal.
-    issuedKey = await issueKeyFor(env, subject);
+    issuedKey = await issueKeyFor(env, subject, adapter.provider);
 
-  } else if (type === 'subscription.updated' || type === 'subscription.unpaused') {
+  } else if (adapter.module.RESTORING_EVENTS.has(type)) {
     // A plan change or an un-pause. Restore access and move the expiry to the
     // new period end. COALESCE so an event without a date cannot blank it.
     if (subject.subscriptionId) {
@@ -351,11 +395,11 @@ async function handleWebhook(request, env, ctx) {
         `UPDATE licenses
             SET status = 'active', expires_at = COALESCE(?, expires_at), updated_at = ?
           WHERE provider = ? AND provider_subscription_id = ?`
-      ).bind(toEpochMs(subject.nextBilledAt), now, PROVIDER, subject.subscriptionId).run();
+      ).bind(toEpochMs(subject.nextBilledAt), now, adapter.provider, subject.subscriptionId).run();
     }
 
-  } else if (REVOKING_EVENTS.has(type)) {
-    if (type === 'refund.succeeded') {
+  } else if (adapter.module.REVOKING_EVENTS.has(type)) {
+    if (adapter.module.REFUND_EVENTS.has(type)) {
       // Money returned. Kill access immediately — this is the one case where
       // someone loses a period they nominally paid for, because they did not
       // ultimately pay for it.
@@ -363,13 +407,13 @@ async function handleWebhook(request, env, ctx) {
         await env.DB.prepare(
           `UPDATE licenses SET status = 'revoked', updated_at = ?
             WHERE provider = ? AND provider_subscription_id = ?`
-        ).bind(now, PROVIDER, subject.subscriptionId).run();
+        ).bind(now, adapter.provider, subject.subscriptionId).run();
       } else if (subject.transactionId) {
         // A refunded ONE-OFF payment has no subscription to match on.
         await env.DB.prepare(
           `UPDATE licenses SET status = 'revoked', updated_at = ?
             WHERE provider = ? AND provider_payment_id = ?`
-        ).bind(now, PROVIDER, subject.transactionId).run();
+        ).bind(now, adapter.provider, subject.transactionId).run();
       }
     } else if (subject.subscriptionId) {
       // subscription.cancelled / subscription.expired. Access runs to the end
@@ -379,20 +423,20 @@ async function handleWebhook(request, env, ctx) {
         `UPDATE licenses
             SET status = 'canceled', expires_at = COALESCE(?, expires_at), updated_at = ?
           WHERE provider = ? AND provider_subscription_id = ?`
-      ).bind(toEpochMs(subject.nextBilledAt), now, PROVIDER, subject.subscriptionId).run();
+      ).bind(toEpochMs(subject.nextBilledAt), now, adapter.provider, subject.subscriptionId).run();
     }
 
-  } else if (SUSPENDING_EVENTS.has(type)) {
+  } else if (adapter.module.SUSPENDING_EVENTS.has(type)) {
     // past_due / on_hold / paused / failed — recoverable, so the row keeps its
     // expiry and can be restored by a later renewal or un-pause.
     if (subject.subscriptionId) {
       await env.DB.prepare(
         `UPDATE licenses SET status = 'past_due', updated_at = ?
           WHERE provider = ? AND provider_subscription_id = ?`
-      ).bind(now, PROVIDER, subject.subscriptionId).run();
+      ).bind(now, adapter.provider, subject.subscriptionId).run();
     }
 
-  } else if (type.startsWith('dispute.')) {
+  } else if (adapter.module.isDispute(type)) {
     // A chargeback. `dispute.opened` already means the money is contested and
     // the card network will claw it back by default, so do not wait for
     // dispute.lost — the filter feed is cheap to restore if it resolves our
@@ -401,29 +445,34 @@ async function handleWebhook(request, env, ctx) {
       await env.DB.prepare(
         `UPDATE licenses SET status = 'revoked', updated_at = ?
           WHERE provider = ? AND provider_subscription_id = ?`
-      ).bind(now, PROVIDER, subject.subscriptionId).run();
+      ).bind(now, adapter.provider, subject.subscriptionId).run();
     }
   }
   // Anything else is recorded below and acknowledged. Returning an error would
   // make Dodo retry something we will never act on.
 
-  // Every Dodo payload carries customer.email, so the address is recorded from
-  // whatever event arrives rather than from a dedicated customer.* event as it
-  // was under Paddle. That removes the ordering hazard the customers table was
-  // built for — see migrations/002 — but the table is still written so key
-  // recovery by email keeps working.
+  // The customers table is load-bearing again under PayPal.
+  //
+  // Dodo put customer.email on every payload, which made this table merely a
+  // convenience. PayPal does not: `subscriber` exists only on
+  // BILLING.SUBSCRIPTION.* events, and PAYMENT.SALE.* — the event that fires on
+  // every renewal — carries no address at all. paypal.js's enrichFromApi
+  // recovers it, but a lookup can fail, so recording the address from whatever
+  // event does carry it is the fallback that keeps key delivery and
+  // recovery-by-email working. This is the exact ordering hazard migrations/002
+  // was written for, returning under a different provider.
   if (subject.customerId && subject.email) {
     await env.DB.prepare(
       `INSERT INTO customers (provider, provider_customer_id, email, updated_at)
        VALUES (?, ?, ?, ?)
        ON CONFLICT(provider_customer_id) DO UPDATE SET email = ?, updated_at = ?`
-    ).bind(PROVIDER, subject.customerId, subject.email, now, subject.email, now).run();
+    ).bind(adapter.provider, subject.customerId, subject.email, now, subject.email, now).run();
 
     await env.DB.prepare(
       `UPDATE licenses SET email = ?, updated_at = ?
         WHERE provider = ? AND provider_customer_id = ?
           AND (email IS NULL OR email = '')`
-    ).bind(subject.email, now, PROVIDER, subject.customerId).run();
+    ).bind(subject.email, now, adapter.provider, subject.customerId).run();
   }
 
   // Acted on successfully — only now is it safe to call this event handled.
@@ -446,7 +495,7 @@ async function handleWebhook(request, env, ctx) {
           `SELECT key, email, activation_limit, expires_at FROM licenses
             WHERE provider = ? AND provider_customer_id = ? AND key_sent_at IS NULL
               AND email IS NOT NULL AND status != 'revoked'`
-        ).bind(PROVIDER, subject.customerId).first();
+        ).bind(adapter.provider, subject.customerId).first();
         if (!row) return;
         const result = await sendLicenceKey(env, {
           key: row.key,
@@ -519,14 +568,34 @@ export default {
       // so already-shipped clients and saved success URLs keep working; only
       // the id FORMAT changed with the provider.
       if (path === '/v1/license/by-transaction' && request.method === 'GET') {
-        const txn = url.searchParams.get('transaction_id') ?? '';
+        // TWO id shapes, because the providers hand the buyer's BROWSER
+        // different things on return from checkout:
+        //
+        //   Dodo   ?payment_id=...       — a payment id, matched on
+        //                                  provider_payment_id
+        //   PayPal ?subscription_id=...  — a subscription id. PayPal's sale id
+        //                                  exists only inside the webhook and
+        //                                  the browser never sees it, so
+        //                                  looking up by payment id would find
+        //                                  nothing and a paying customer would
+        //                                  be shown "no key" forever.
+        //
+        // Both are opaque and high-entropy, so which column a value is checked
+        // against is decided by WHICH PARAMETER was sent, never by guessing
+        // from the value's shape.
+        const txn = url.searchParams.get('transaction_id')
+          ?? url.searchParams.get('payment_id') ?? '';
+        const sub = url.searchParams.get('subscription_id') ?? '';
+        const lookup = txn ? { id: txn, by: 'payment' } : { id: sub, by: 'subscription' };
         // Was `^txn_[a-z0-9]{26}$` — Paddle's exact format, which rejects every
-        // Dodo payment id. Dodo's ids are opaque and their shape is not
-        // documented as a stable contract, so this validates the character set
-        // and a sane length rather than inventing a prefix that a future id
-        // might not carry. It still blocks anything that is not an identifier.
-        if (!/^[A-Za-z0-9_-]{8,80}$/.test(txn)) {
-          return json({ error: 'malformed payment id' }, 400);
+        // A payment id from whichever provider sold the licence. Their shapes
+        // are opaque and documented as stable by none of them, so this
+        // validates the character set and a sane length rather than inventing
+        // a prefix a future id might not carry. PayPal sale ids and Dodo
+        // payment ids both satisfy it. It still blocks anything that is not an
+        // identifier.
+        if (!/^[A-Za-z0-9_-]{8,80}$/.test(lookup.id)) {
+          return json({ error: 'malformed payment or subscription id' }, 400);
         }
 
         if (env.VALIDATE_LIMITER) {
@@ -535,10 +604,25 @@ export default {
           if (!success) return json({ error: 'rate limited' }, 429, { 'Retry-After': '60' });
         }
 
-        const row = await env.DB.prepare(
-          `SELECT key, expires_at FROM licenses
-            WHERE provider = ? AND provider_payment_id = ? AND status != 'revoked'`
-        ).bind(PROVIDER, txn).first();
+        // NOT scoped to a provider any more. The buyer's browser knows its
+        // payment id and nothing else — it has no idea which processor minted
+        // it, and asking it to would leak an implementation detail into a URL
+        // the buyer can see. Payment ids are opaque and high-entropy, so a
+        // collision across providers is not a practical concern; the composite
+        // UNIQUE index still keeps the two namespaces apart where it matters,
+        // on the subscription id.
+        // Two literal statements rather than interpolating a column name.
+        // The column is chosen from this fixed pair and never built from
+        // input, so there is nothing for a crafted parameter to reach.
+        const row = lookup.by === 'payment'
+          ? await env.DB.prepare(
+            `SELECT key, expires_at FROM licenses
+              WHERE provider_payment_id = ? AND status != 'revoked'`
+          ).bind(lookup.id).first()
+          : await env.DB.prepare(
+            `SELECT key, expires_at FROM licenses
+              WHERE provider_subscription_id = ? AND status != 'revoked'`
+          ).bind(lookup.id).first();
 
         // 404 here is usually "the webhook has not landed yet" rather than
         // "no such purchase" — the two are indistinguishable from here, so say
@@ -570,9 +654,22 @@ export default {
         return json(stored, 200, { ETag: etag, 'Cache-Control': 'private, max-age=3600' });
       }
 
+      // --- PayPal ---------------------------------------------------------
+      // The live provider as of 2026-09-17. Register this URL as the webhook
+      // destination in the PayPal app, then put the webhook id it gives back
+      // into the PAYPAL_WEBHOOK_ID secret — verification needs it, and a
+      // missing id rejects every delivery rather than accepting it unchecked.
+      if (path === '/v1/paypal/webhook' && request.method === 'POST') {
+        return await handleWebhook(request, env, ctx, ADAPTERS.paypal);
+      }
+
       // --- Dodo Payments --------------------------------------------------
+      // Kept live although Dodo declined the account. It is the only provider
+      // ever exercised against a real sandbox purchase, and leaving the route
+      // costs nothing: without DODO_WEBHOOK_SECRET set, every delivery here is
+      // rejected at the signature check anyway.
       if (path === '/v1/dodo/webhook' && request.method === 'POST') {
-        return await handleWebhook(request, env, ctx);
+        return await handleWebhook(request, env, ctx, ADAPTERS.dodo);
       }
 
       // The Paddle endpoint is gone, not redirected. Paddle refused the
@@ -580,7 +677,7 @@ export default {
       // says so plainly instead of letting a stray call look like a network
       // fault while a buyer waits for a key that will never come.
       if (path === '/v1/paddle/webhook') {
-        return json({ error: 'gone: this integration moved to Dodo Payments' }, 410);
+        return json({ error: 'gone: this integration moved to PayPal' }, 410);
       }
 
       // --- admin: publish a filter build ---------------------------------

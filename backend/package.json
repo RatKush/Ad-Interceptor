@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "test": "node test/dodo-signature.mjs && node test/paypal-events.mjs",
     "schema": "wrangler d1 execute ad-interceptor-licenses --remote --file=schema.sql",
     "schema:local": "wrangler d1 execute ad-interceptor-licenses --local --config wrangler.local.jsonc --file=schema.sql",
     "tail": "wrangler tail",

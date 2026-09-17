@@ -56,14 +56,35 @@
   "vars": {
     "MAIL_FROM": "",
     "MAIL_FROM_NAME": "Ad Interceptor",
-    "SUPPORT_EMAIL": "thenightwatchcaptain@gmail.com"
+    "SUPPORT_EMAIL": "thenightwatchcaptain@gmail.com",
+
+    // Which PayPal host to talk to. Anything other than "live" means sandbox,
+    // deliberately: a typo should cost sandbox traffic, never real charges
+    // against the wrong environment. Flip to "live" only once a sandbox
+    // purchase has minted a real key end to end.
+    "PAYPAL_ENV": "sandbox"
   },
 
   "observability": {
     "enabled": true
   }
 
-  // Secrets — set with `npx wrangler secret put <NAME>`, never in this file:
-  //   PADDLE_WEBHOOK_SECRET  the notification destination's signing secret
+  // Secrets — set with `npx wrangler secret put <NAME>`, never in this file.
+  //
+  // PayPal (the live provider since 2026-09-17):
+  //   PAYPAL_CLIENT_ID       REST app client id
+  //   PAYPAL_CLIENT_SECRET   REST app secret
+  //   PAYPAL_WEBHOOK_ID      the id PayPal returns when you register the
+  //                          webhook URL. Verification needs it; without it
+  //                          every delivery is REJECTED, not accepted
+  //                          unchecked — see verifyPayPalSignature.
+  //   PAYPAL_WEBHOOK_ID_TEST optional second slot, so a sandbox app and a live
+  //                          app can be configured at the same time
+  //
+  // Dodo (declined the account, route kept as the proven reference shape):
+  //   DODO_WEBHOOK_SECRET        endpoint signing secret (whsec_...)
+  //   DODO_WEBHOOK_SECRET_TEST   optional second slot
+  //
+  // Always:
   //   ADMIN_TOKEN            bearer token for /v1/admin/* (generate: openssl rand -hex 32)
 }
