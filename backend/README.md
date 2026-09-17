@@ -99,13 +99,27 @@ npx wrangler secret put PAYPAL_CLIENT_SECRET
 npx wrangler deploy
 ```
 
-**4. Register the webhook.** In the same app, add a webhook pointing at:
+**4. Register the webhook.** Run the script rather than clicking:
+
+```sh
+PAYPAL_CLIENT_ID=... PAYPAL_CLIENT_SECRET=... node scripts/paypal-webhook-setup.mjs
+```
+
+It points the webhook at:
 
 ```
 https://ad-interceptor-api.ad-interceptor-api.workers.dev/v1/paypal/webhook
 ```
 
-Subscribe to these event groups — the adapter's sets are built around them:
+and subscribes it to all fourteen events below. It is idempotent in a stronger
+sense than `paypal-setup.mjs`: if a webhook for that URL already exists with a
+different event list, it PATCHes the list back into line. Prefer it to the
+dashboard — a webhook subscribed to the wrong events fails **silently**, and the
+symptom surfaces months later as a licence that did not renew.
+
+The authoritative list is the one in that script, which is in turn taken from
+the event sets in `src/paypal.js`. Ticking these by hand means fourteen exact
+strings, with no wildcard available in the dashboard:
 
 | Event | Effect |
 |---|---|
@@ -115,12 +129,20 @@ Subscribe to these event groups — the adapter's sets are built around them:
 | `BILLING.SUBSCRIPTION.UPDATED` | plan change / un-suspend |
 | `BILLING.SUBSCRIPTION.SUSPENDED` | `past_due`, recoverable |
 | `BILLING.SUBSCRIPTION.PAYMENT.FAILED` | `past_due`, recoverable |
+| `PAYMENT.SALE.DENIED` | `past_due`, recoverable |
 | `BILLING.SUBSCRIPTION.CANCELLED` | access runs to the paid-for date |
 | `BILLING.SUBSCRIPTION.EXPIRED` | same |
-| `PAYMENT.SALE.REFUNDED` / `.REVERSED` | revoked immediately |
-| `CUSTOMER.DISPUTE.*` | revoked — see the dispute note in index.js |
+| `PAYMENT.SALE.REFUNDED` | revoked immediately |
+| `PAYMENT.SALE.REVERSED` | revoked immediately |
+| `CUSTOMER.DISPUTE.CREATED` | revoked — see the dispute note in index.js |
+| `CUSTOMER.DISPUTE.UPDATED` | same |
+| `CUSTOMER.DISPUTE.RESOLVED` | same |
 
-PayPal returns a **Webhook ID** once saved. Verification needs it:
+The wildcard rows this table used to carry (`PAYMENT.SALE.REFUNDED / .REVERSED`
+and `CUSTOMER.DISPUTE.*`) read fine but could not be ticked, and they hid the
+omission of `PAYMENT.SALE.DENIED` entirely.
+
+The script prints the **Webhook ID**. Verification needs it:
 
 ```sh
 npx wrangler secret put PAYPAL_WEBHOOK_ID
