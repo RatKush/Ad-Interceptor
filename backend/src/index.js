@@ -2,6 +2,8 @@
 //
 //   POST /v1/license/validate   { key, version, installId } -> { valid, plan, expiresAt, reason? }
 //   GET  /v1/filters/latest     Authorization: Bearer <key>  -> { rules: [...], builtAt }
+//   POST /v1/checkout/paypal    { origin } -> { approveUrl }   (starts a checkout)
+//   POST /v1/paypal/webhook     PayPal notifications
 //   POST /v1/dodo/webhook       Dodo Payments notifications
 //   POST /v1/admin/filters      Authorization: Bearer <ADMIN_TOKEN>  (publish a filter build)
 //   POST /v1/admin/license      Authorization: Bearer <ADMIN_TOKEN>  (issue a comp/support key)
@@ -652,6 +654,47 @@ export default {
           return new Response(null, { status: 304, headers: { ETag: etag, ...CORS } });
         }
         return json(stored, 200, { ETag: etag, 'Cache-Control': 'private, max-age=3600' });
+      }
+
+      // --- start a PayPal checkout ----------------------------------------
+      // The pricing page posts here, then navigates to the approve URL this
+      // returns. Done server-side for two reasons: the client secret must not
+      // reach the browser, and the site must not load PayPal's SDK — the
+      // privacy policy promises the page loads no third-party resource at all.
+      // See createSubscription in paypal.js.
+      //
+      // Creating a subscription here charges nobody. It lands in
+      // APPROVAL_PENDING and only becomes real when the buyer approves it at
+      // PayPal, which arrives back as a SIGNED webhook. This endpoint is
+      // therefore not a place where money or licences can be conjured, which
+      // is why it needs no authentication.
+      if (path === '/v1/checkout/paypal' && request.method === 'POST') {
+        // Unauthenticated and it talks to PayPal, so bound it. Without this,
+        // a script could fill the account with APPROVAL_PENDING subscriptions.
+        if (env.VALIDATE_LIMITER) {
+          const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+          const { success } = await env.VALIDATE_LIMITER.limit({ key: `checkout:${ip}` });
+          if (!success) return json({ error: 'rate limited' }, 429, { 'Retry-After': '60' });
+        }
+
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'malformed JSON' }, 400); }
+
+        const origin = String(body?.origin ?? '');
+        if (!origin) return json({ error: 'origin is required' }, 400);
+
+        try {
+          const { approveUrl, subscriptionId } = await paypal.createSubscription(env, origin);
+          console.log(`checkout started: ${subscriptionId}`);
+          return json({ approveUrl });
+        } catch (err) {
+          // The page shows a "contact us" state on any failure, so the exact
+          // reason is for the log, not the buyer. Separated from 500 because
+          // an unconfigured provider is an operator error, not a bug, and the
+          // two should not look alike in the tail.
+          console.log(`checkout failed: ${err.message}`);
+          return json({ error: 'checkout unavailable' }, 503);
+        }
       }
 
       // --- PayPal ---------------------------------------------------------

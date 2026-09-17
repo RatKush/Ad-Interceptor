@@ -118,12 +118,12 @@
     <div class="plan is-pro">
       <p class="plan-name">Pro</p>
       <!-- Always USD. Paddle.js exposed a client-side PricePreview that
-           rewrote this into the visitor's own currency; Dodo has no browser
-           equivalent, and fetching a quote server-side would put a third-party
-           request back on the page for a cosmetic gain. Dodo's Adaptive
-           Currency still converts at CHECKOUT, so the buyer pays in their own
-           money — the note below says so rather than letting the switch
-           surprise them. -->
+           rewrote this into the visitor's own currency; there is no browser
+           equivalent without loading PayPal's SDK, and fetching a quote
+           server-side would spend a round trip on a cosmetic gain. PayPal
+           still converts at CHECKOUT and shows the buyer their own currency
+           before they confirm — the note below says so rather than letting
+           the switch surprise them. -->
       <p class="plan-price" id="proPrice">${{priceUSD}}</p>
       <p class="plan-per">per year, up to {{deviceLimit}} devices</p>
       <p class="plan-tax" id="proTax" hidden></p>
@@ -144,9 +144,9 @@
     </div>
   </div>
 
-  <!-- Shown after checkout completes. Dodo redirects back here with
-       ?payment_id=...&status=succeeded, and the page trades that id for the
-       licence key at the licence API. -->
+  <!-- Shown after checkout completes. PayPal returns the buyer here with
+       ?subscription_id=..., and the page trades that id for the licence key
+       at the licence API. -->
   <div class="keybox" id="keyBox" hidden>
     <h2 id="keyTitle">Payment received</h2>
     <p id="keyStatus">Issuing your licence key…</p>
@@ -239,16 +239,17 @@
   <p>Ad Interceptor Pro is sold by {{legalName}} ({{jurisdiction}}). Payments are processed by {{processorName}}.</p>
   <p><a href="/pricing">Pricing</a> &middot; <a href="/terms">Terms &amp; Conditions</a> &middot; <a href="/refunds">Refund Policy</a> &middot; <a href="/privacy-policy">Privacy Policy</a> &middot; <a href="mailto:{{contactEmail}}">{{contactEmail}}</a></p>
 </footer>
-<!-- This site now loads NO third-party resource of any kind.
-     The previous integration pulled Paddle.js in on this page for its overlay
+<!-- This site loads NO third-party resource of any kind.
+     The Paddle integration pulled Paddle.js in on this page for its overlay
      checkout, which was the single exception to the "contacts no one" claim
-     the product is sold on. Dodo supports a plain hosted payment link, so the
-     Get Pro button is an ordinary navigation: nothing runs here on anyone
-     else's behalf, and the privacy policy no longer needs an exception. -->
+     the product is sold on. PayPal's own docs push their JS SDK, which would
+     reintroduce exactly that exception. It is avoided: Get Pro posts to our
+     own Worker, which creates the subscription and returns a paypal.com URL
+     to navigate to. Nothing runs here on anyone else's behalf, and the privacy
+     policy needs no exception. -->
 <script>
   (function () {
     var CHECKOUT_ENABLED = {{checkoutEnabled}};
-    var CHECKOUT_URL = "{{checkoutUrl}}";
     var API_BASE = "{{apiBase}}";
     var SALES_ENABLED = {{salesEnabled}};
 
@@ -265,6 +266,7 @@
     var copyBtn = document.getElementById('copyKey');
     var downloadBtn = document.getElementById('downloadKey');
     var currentTxn = null;
+    var currentKind = 'subscription';
 
     // ---- everything below must run BEFORE the gates -------------------
     //
@@ -309,7 +311,8 @@
         'is released automatically after 60 days.',
         '',
         currentTxn ? 'Order reference: ' + currentTxn : '',
-        currentTxn ? 'Recover this key: ' + location.origin + '/pricing?recover=' + currentTxn : '',
+        currentTxn ? 'Recover this key: ' + location.origin + '/pricing?recover=' + currentTxn +
+          (currentKind === 'payment' ? '&k=p' : '') : '',
         '',
         'Purchased: ' + new Date().toISOString().slice(0, 10),
         'Support: {{contactEmail}}',
@@ -332,30 +335,49 @@
       setTimeout(function () { downloadBtn.textContent = 'Download as .txt'; }, 1800);
     });
 
-    // Two ways to land on a key:
-    //   ?payment_id=pay_...&status=succeeded  — Dodo's post-checkout redirect
-    //   ?recover=pay_...                      — a bookmark the buyer kept
+    // Ways to land on a key, in priority order:
+    //   ?subscription_id=I-...  — PayPal's post-approval return
+    //   ?recover=I-...          — a bookmark the buyer kept
+    //   ?payment_id=pay_...     — Dodo's shape, handled only because the API
+    //                             route still exists; no Dodo sale can happen
     //
-    // The payment id is unguessable and disclosed only to the purchasing
-    // browser, which is the same basis on which the panel shows the key at all.
+    // The id is unguessable and disclosed only to the purchasing browser,
+    // which is the same basis on which the panel shows the key at all.
     //
     // The pattern is deliberately loose. It was `^txn_[a-z0-9]{26}$`, copied
     // from Paddle's docs — which rejects Dodo's own ids outright, since they
-    // are MIXED CASE (pay_ts2ySpzg07phGeBZqePbH). A receipt page that silently
-    // refuses to recognise a real receipt is the worst version of this bug, so
-    // validate shape, not vendor trivia.
+    // are MIXED CASE (pay_ts2ySpzg07phGeBZqePbH), and PayPal's are different
+    // again (I-BW452GLLEP1G). A receipt page that silently refuses to
+    // recognise a real receipt is the worst version of this bug, so validate
+    // shape, not vendor trivia.
     var ID_RE = /^[A-Za-z0-9_-]{8,80}$/;
     var params = new URLSearchParams(location.search);
 
-    // Dodo appends status= to the redirect. Only a succeeded payment should
-    // open the key panel; a cancelled or failed one must leave the page alone
-    // so the buyer can simply try again.
-    var redirected = params.get('payment_id');
-    var redirectStatus = params.get('status');
-    var recover = params.get('recover') ||
-      (redirected && (!redirectStatus || redirectStatus === 'succeeded') ? redirected : null);
+    // A buyer who backed out of checkout comes back here too — PayPal's
+    // cancel_url is this page with ?checkout=cancelled, deliberately NOT the
+    // same URL as the return, so that abandoning checkout cannot be mistaken
+    // for completing it. Nothing to do: fall through to the normal page.
+    var cancelled = params.get('checkout') === 'cancelled';
 
-    if (recover && ID_RE.test(recover)) {
+    // WHICH id this is decides which parameter the API is asked with, because
+    // the two live in different columns. Never guessed from the value's shape.
+    var lookup = null;
+    var fromPayPal = params.get('subscription_id');
+    var fromDodo = params.get('payment_id');
+    var recovered = params.get('recover');
+
+    if (!cancelled && fromPayPal) {
+      lookup = { id: fromPayPal, kind: 'subscription' };
+    } else if (recovered) {
+      // k=p marks a recover link built from a payment id. Absent means
+      // subscription, which is what PayPal issues and therefore the default.
+      lookup = { id: recovered, kind: params.get('k') === 'p' ? 'payment' : 'subscription' };
+    } else if (!cancelled && fromDodo) {
+      var st = params.get('status');
+      if (!st || st === 'succeeded') lookup = { id: fromDodo, kind: 'payment' };
+    }
+
+    if (lookup && ID_RE.test(lookup.id)) {
       keyBox.hidden = false;
       document.getElementById('keyTitle').textContent = 'Thank you — here is your licence key';
       keyStatus.textContent = 'Looking up your purchase…';
@@ -366,7 +388,7 @@
       if (plans) plans.hidden = true;
       keyBox.scrollIntoView({ block: 'start' });
 
-      collectKey(recover, 0);
+      collectKey(lookup, 0);
 
       // A receipt view needs no checkout. Returning here also means the sales
       // gate below can never overwrite what we just put on screen.
@@ -390,7 +412,7 @@
 
     // Degrade honestly rather than throwing: an unconfigured checkout should
     // say so, not present a button that goes nowhere.
-    if (!CHECKOUT_ENABLED || !CHECKOUT_URL) {
+    if (!CHECKOUT_ENABLED || !API_BASE) {
       buy.disabled = true;
       buy.textContent = 'Pro is not on sale yet';
       buyNote.textContent = 'Pro is in final testing. Check back shortly.';
@@ -398,16 +420,24 @@
     }
 
     /**
-     * Trade the transaction id for the licence key.
+     * Trade the subscription (or payment) id for the licence key.
      *
-     * The key is minted by the Dodo webhook, which races this page: the
-     * buyer's browser is redirected back before the webhook always lands. So
+     * The key is minted by the webhook, which RACES this page: PayPal returns
+     * the buyer's browser as soon as they approve, which is often before
+     * BILLING.SUBSCRIPTION.ACTIVATED has been delivered and processed. So
      * poll, with a ceiling. A 404 with retryable means "not yet"; anything
      * else is final.
+     *
+     * `lookup` is { id, kind }. The kind picks the query parameter, because
+     * the backend matches a subscription id and a payment id against different
+     * columns — PayPal hands the browser a SUBSCRIPTION id and its sale id
+     * exists only inside the webhook, so asking by payment id would find
+     * nothing and a paying customer would see "no key" forever.
      */
-    function collectKey(transactionId, attempt) {
+    function collectKey(lookup, attempt) {
       attempt = attempt || 0;
-      currentTxn = transactionId;
+      currentTxn = lookup.id;
+      currentKind = lookup.kind;
       if (!API_BASE) {
         keyStatus.textContent = 'Your payment went through. Email us and we will send your licence key straight away.';
         return;
@@ -417,7 +447,8 @@
         return;
       }
 
-      fetch(API_BASE + '/v1/license/by-transaction?transaction_id=' + encodeURIComponent(transactionId))
+      var param = lookup.kind === 'payment' ? 'transaction_id' : 'subscription_id';
+      fetch(API_BASE + '/v1/license/by-transaction?' + param + '=' + encodeURIComponent(lookup.id))
         .then(function (res) {
           return res.json().then(function (body) { return { status: res.status, body: body }; });
         })
@@ -435,7 +466,10 @@
             // ticket into a link the buyer already has — the same payment id
             // appears on the merchant of record's receipt.
             if (currentTxn) {
-              var url = location.origin + '/pricing?recover=' + encodeURIComponent(currentTxn);
+              // k=p only for a payment id; a subscription id is the default,
+              // so the common link stays clean.
+              var url = location.origin + '/pricing?recover=' + encodeURIComponent(currentTxn) +
+                (currentKind === 'payment' ? '&k=p' : '');
               keyRecover.innerHTML = 'Lost it? Bookmark this page to fetch it again: ' +
                 '<a href="' + url + '">' + url + '</a>';
               keyRecover.hidden = false;
@@ -443,36 +477,64 @@
             return;
           }
           if (r.status === 404 && r.body.retryable) {
-            setTimeout(function () { collectKey(transactionId, attempt + 1); }, 3000);
+            setTimeout(function () { collectKey(lookup, attempt + 1); }, 3000);
             return;
           }
           keyStatus.textContent = 'Your payment went through. Email us and we will send your licence key straight away.';
         })
         .catch(function () {
-          setTimeout(function () { collectKey(transactionId, attempt + 1); }, 3000);
+          setTimeout(function () { collectKey(lookup, attempt + 1); }, 3000);
         });
     }
 
     buy.addEventListener('click', function () {
-      // A plain navigation to the hosted checkout. No SDK, no overlay, no
-      // third-party script on this page.
+      // Ask our own Worker to create the subscription, then navigate to the
+      // paypal.com URL it hands back. Still NO third-party script on this
+      // page — the only cross-origin request is to our own API, and the buyer
+      // leaves for PayPal by ordinary navigation.
       //
-      // redirect_url is built here rather than baked into the config so it
-      // always matches the origin actually being served — a hardcoded one
-      // sends anyone testing on a preview deployment back to production, where
-      // their payment id means nothing and the key never appears.
+      // Why not PayPal's JS SDK, which their docs push: it would load their
+      // script here, and the privacy policy states on the live site that these
+      // pages load no third-party resources of any kind. Why not a static
+      // /webapps/billing/plans/subscribe link: it carries no return URL, so
+      // the buyer would come back with nothing to trade for a key.
       //
-      // The buyer comes back to /pricing?payment_id=...&status=succeeded,
-      // which the handler at the top of this function turns into a key.
-      var back = location.origin + location.pathname;
-      var url = CHECKOUT_URL + '&redirect_url=' + encodeURIComponent(back);
-
+      // location.origin is sent rather than baked into the config so the
+      // return always matches the origin actually being served — a hardcoded
+      // one sends anyone testing a preview deployment back to production,
+      // where their subscription id means nothing and the key never appears.
+      // The Worker allow-lists what it will accept.
       buy.disabled = true;
       buy.textContent = 'Opening checkout…';
 
-      // assign(), not replace(): Back from a checkout the buyer abandoned
-      // should return to this page rather than skipping past it.
-      location.assign(url);
+      fetch(API_BASE + '/v1/checkout/paypal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ origin: location.origin })
+      })
+        .then(function (res) {
+          return res.json().then(function (body) { return { status: res.status, body: body }; });
+        })
+        .then(function (r) {
+          if (r.status === 200 && r.body.approveUrl) {
+            // assign(), not replace(): Back from a checkout the buyer
+            // abandoned should return to this page rather than skipping past
+            // it. PayPal's cancel_url brings them here too.
+            location.assign(r.body.approveUrl);
+            return;
+          }
+          fail();
+        })
+        .catch(fail);
+
+      // Never leave the button spinning. A buyer who cannot start checkout
+      // needs to know that, and needs a way to reach a human.
+      function fail() {
+        buy.disabled = false;
+        buy.textContent = 'Get Pro';
+        buyNote.innerHTML = 'Checkout is temporarily unavailable. ' +
+          'Please <a href="mailto:{{contactEmail}}">email us</a> and we will sort it out.';
+      }
     });
 
   })();

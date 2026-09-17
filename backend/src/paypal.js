@@ -257,6 +257,125 @@ export async function enrichFromApi(env, subject) {
   }
 }
 
+// ---- Checkout -------------------------------------------------------------
+//
+// The buyer is sent to PayPal by a plain REDIRECT, not by the JS SDK.
+//
+// This is a deliberate constraint, not a preference. site/privacy-policy.html
+// says, on the live site, "These pages load no analytics, no tracking scripts,
+// no cookies, no webfonts and no third-party resources of any kind — including
+// the pricing page... Buying Pro navigates you to PayPal's own checkout page;
+// nothing belonging to them runs on this site." Loading PayPal's SDK on the
+// pricing page would make a published legal page false.
+//
+// PayPal's own docs push the SDK and flag `application_context` as deprecated,
+// which made the redirect route look unavailable. It is not: probing the
+// sandbox API on 2026-09-18 showed POST /v1/billing/subscriptions returns a
+// `rel=approve` link under BOTH `application_context` and the current
+// `subscriber.experience_context`. The latter is used here.
+//
+// The alternative — a static /webapps/billing/plans/subscribe?plan_id= link —
+// needs no backend but carries no return URL, so the buyer would come back
+// with nothing to trade for a licence key. That is why this is a server call.
+
+/**
+ * Origins we are willing to send a buyer back to after checkout.
+ *
+ * The return URL is built from an origin the PAGE supplies, because a
+ * hardcoded one sends anyone testing a Cloudflare Pages preview deployment
+ * back to production, where their subscription id means nothing and the key
+ * never appears. That was a real bug in the Dodo integration's redirect_url.
+ *
+ * But an unvalidated origin makes this endpoint an open redirect wearing
+ * PayPal's branding: anyone could mint a genuine paypal.com checkout URL that
+ * lands the buyer on a site they chose. Allow-list it instead of trusting it.
+ */
+export function isAllowedReturnOrigin(origin) {
+  let u;
+  try { u = new URL(origin); } catch { return false; }
+
+  // Local development only ever runs over http, and only on loopback.
+  if (u.protocol === 'http:') return u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+  if (u.protocol !== 'https:') return false;
+
+  // Production, plus Pages preview deploys, which are
+  // https://<hash>.ad-interceptor.pages.dev. The leading dot matters: a bare
+  // `endsWith('ad-interceptor.pages.dev')` would also accept
+  // `evil-ad-interceptor.pages.dev`.
+  return u.hostname === 'ad-interceptor.pages.dev'
+    || u.hostname.endsWith('.ad-interceptor.pages.dev');
+}
+
+/**
+ * Create a subscription in APPROVAL_PENDING and return the URL to send the
+ * buyer to. Nothing is charged until they approve it there.
+ *
+ * Returns { approveUrl, subscriptionId }. The subscription id is returned so
+ * the caller can log it; the licence is NOT minted here — that happens when
+ * BILLING.SUBSCRIPTION.ACTIVATED arrives at the webhook, which is the only
+ * account of events that is signed and therefore the only one to be trusted.
+ */
+export async function createSubscription(env, returnOrigin) {
+  const planId = env.PAYPAL_PLAN_ID;
+  if (!planId) throw new Error('PAYPAL_PLAN_ID not configured');
+
+  if (!isAllowedReturnOrigin(returnOrigin)) {
+    // Not an error the buyer can cause through the real page, so it does not
+    // need a friendly message — but it must not silently fall back to
+    // production either, or a preview deploy would look like it worked.
+    throw new Error('return origin is not allow-listed');
+  }
+
+  const back = `${new URL(returnOrigin).origin}/pricing`;
+  const tok = await getAccessToken(env);
+
+  const res = await fetch(`${apiBase(env)}/v1/billing/subscriptions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${tok}`,
+      'Content-Type': 'application/json',
+      // PayPal echoes a cached response for a repeated key rather than
+      // creating a second subscription. A buyer who double-clicks Get Pro
+      // gets one subscription, not two.
+      'PayPal-Request-Id': crypto.randomUUID()
+    },
+    body: JSON.stringify({
+      plan_id: planId,
+      subscriber: {
+        experience_context: {
+          brand_name: 'Ad Interceptor',
+          // The buyer already chose to pay; do not make them confirm twice.
+          user_action: 'SUBSCRIBE_NOW',
+          // PayPal appends its own query parameters to these. The pricing page
+          // reads subscription_id off the return.
+          return_url: back,
+          // DISTINCT from return_url on purpose. If both are the same URL, a
+          // buyer who backs out of checkout lands on the success path and is
+          // told "payment received" while the page polls for a key that will
+          // never exist. The page treats ?checkout=cancelled as "do nothing".
+          cancel_url: `${back}?checkout=cancelled`
+        }
+      }
+    })
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    console.log(`paypal: create subscription failed: HTTP ${res.status} ${text.slice(0, 300)}`);
+    throw new Error(`PayPal subscription create failed: HTTP ${res.status}`);
+  }
+
+  const body = await res.json();
+  const approve = (body.links ?? []).find((l) => l.rel === 'approve');
+  if (!approve?.href) {
+    // Shape change at PayPal's end. Fail loudly rather than returning a
+    // half-built checkout the page would navigate to blindly.
+    throw new Error('PayPal returned no approve link');
+  }
+
+  return { approveUrl: approve.href, subscriptionId: body.id ?? null };
+}
+
 // ---- Event sets -----------------------------------------------------------
 // Note the hyphen in RE-ACTIVATED. It is PayPal's spelling, not a typo, and
 // `BILLING.SUBSCRIPTION.REACTIVATED` matches nothing.

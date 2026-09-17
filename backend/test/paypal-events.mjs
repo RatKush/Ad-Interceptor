@@ -20,7 +20,9 @@ import {
   REVOKING_EVENTS,
   RESTORING_EVENTS,
   REFUND_EVENTS,
-  isDispute
+  isDispute,
+  isAllowedReturnOrigin,
+  createSubscription
 } from '../src/paypal.js';
 
 let pass = 0;
@@ -170,6 +172,85 @@ console.log('\nenrichFromApi — no-network paths');
     );
     check('a failed lookup returns the subject instead of throwing',
       degraded.subscriptionId === 'I-2' && degraded.email === null);
+  } finally {
+    globalThis.fetch = globalFetch;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Checkout: the return-origin allow-list
+// ---------------------------------------------------------------------------
+// The page supplies the origin it wants to come back to, so that a Pages
+// preview deploy returns to itself rather than to production. Unvalidated,
+// that makes /v1/checkout/paypal an open redirect wearing PayPal's branding:
+// anyone could mint a genuine paypal.com checkout URL that lands the buyer
+// wherever they chose. These are the cases that must not pass.
+{
+  console.log('\nCheckout — return origin allow-list');
+
+  check('production origin is allowed',
+    isAllowedReturnOrigin('https://ad-interceptor.pages.dev') === true);
+
+  check('a Pages preview deploy is allowed',
+    isAllowedReturnOrigin('https://abc123.ad-interceptor.pages.dev') === true);
+
+  check('localhost over http is allowed, for local dev',
+    isAllowedReturnOrigin('http://localhost:8788') === true);
+
+  check('127.0.0.1 over http is allowed',
+    isAllowedReturnOrigin('http://127.0.0.1:8788') === true);
+
+  // The one that a bare endsWith() check would wrongly accept.
+  check('a look-alike host is REJECTED',
+    isAllowedReturnOrigin('https://evil-ad-interceptor.pages.dev') === false);
+
+  check('an unrelated host is rejected',
+    isAllowedReturnOrigin('https://evil.example') === false);
+
+  check('a subdomain of an unrelated host is rejected',
+    isAllowedReturnOrigin('https://ad-interceptor.pages.dev.evil.example') === false);
+
+  check('http is rejected for a non-loopback host',
+    isAllowedReturnOrigin('http://ad-interceptor.pages.dev') === false);
+
+  check('a non-http scheme is rejected',
+    isAllowedReturnOrigin('javascript:alert(1)') === false);
+
+  check('garbage is rejected rather than throwing',
+    isAllowedReturnOrigin('not a url') === false);
+
+  check('an empty origin is rejected',
+    isAllowedReturnOrigin('') === false);
+}
+
+// ---------------------------------------------------------------------------
+// Checkout: createSubscription refuses before it reaches the network
+// ---------------------------------------------------------------------------
+{
+  console.log('\nCheckout — createSubscription guards');
+
+  const globalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error('createSubscription should not have called out'); };
+  try {
+    let threw = null;
+    try {
+      await createSubscription(
+        { PAYPAL_PLAN_ID: 'P-1', PAYPAL_CLIENT_ID: 'x', PAYPAL_CLIENT_SECRET: 'y' },
+        'https://evil.example'
+      );
+    } catch (err) { threw = err; }
+    check('a disallowed return origin is refused without calling PayPal',
+      threw !== null && /allow-listed/.test(threw.message), threw?.message ?? 'did not throw');
+
+    threw = null;
+    try {
+      await createSubscription(
+        { PAYPAL_CLIENT_ID: 'x', PAYPAL_CLIENT_SECRET: 'y' },
+        'https://ad-interceptor.pages.dev'
+      );
+    } catch (err) { threw = err; }
+    check('a missing plan id is refused rather than sending plan_id undefined',
+      threw !== null && /PAYPAL_PLAN_ID/.test(threw.message), threw?.message ?? 'did not throw');
   } finally {
     globalThis.fetch = globalFetch;
   }

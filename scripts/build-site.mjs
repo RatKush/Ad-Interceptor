@@ -72,45 +72,44 @@ if (missing.length) {
   process.exit(1);
 }
 
-// Consistency checks on the Dodo config.
+// Consistency checks on the PayPal config.
 //
 // These exist because the previous integration shipped a page whose checkout
 // disagreed with its own config more than once. A build that cannot be wrong
 // beats a deploy that has to be remembered.
+//
+// There is less to check than there used to be: the plan id and the client
+// secret live in the Worker, so the site cannot hold a stale copy of either.
+// What it CAN still get wrong is selling before anything is ready.
 {
-  const mode = seller.dodoMode;
-  if (mode !== 'test' && mode !== 'live') {
-    console.error(`dodoMode must be "test" or "live", got ${JSON.stringify(mode)}.`);
+  const env = seller.paypalEnv;
+  if (env !== 'sandbox' && env !== 'live') {
+    console.error(`paypalEnv must be "sandbox" or "live", got ${JSON.stringify(env)}.`);
     process.exit(1);
   }
 
-  // Selling for real requires a real product id — this is the check that stops
-  // a live buy button pointing at an empty catalogue entry.
   if (seller.salesEnabled === true) {
-    if (!seller.dodoProductId) {
-      console.error('Refusing to build: salesEnabled is true but dodoProductId is empty.');
-      console.error('A live Get Pro button would link to a checkout for no product.');
+    // The buy button is useless without the API — checkout is now a POST to
+    // apiBase, not a static link, so an empty apiBase is not a degraded
+    // checkout, it is no checkout at all.
+    if (!seller.apiBase) {
+      console.error('Refusing to build: salesEnabled is true but apiBase is empty.');
+      console.error('The Get Pro button POSTs to apiBase + /v1/checkout/paypal; with no');
+      console.error('apiBase there is nothing to post to and the button cannot work.');
       process.exit(1);
     }
-    if (mode !== 'live') {
-      console.error(`Refusing to build: salesEnabled is true while dodoMode is "${mode}".`);
-      console.error('That sells to real customers through a test checkout — they pay nothing,');
-      console.error('and the licence they receive is backed by no money.');
+    if (env !== 'live') {
+      console.error(`Refusing to build: salesEnabled is true while paypalEnv is "${env}".`);
+      console.error('That sells to real customers through a sandbox checkout — they pay');
+      console.error('nothing, and the licence they receive is backed by no money.');
       process.exit(1);
     }
   }
 
-  // Deliberately permissive. Dodo does not publish its id formats as a stable
-  // contract, and the last integration hard-coded `txn_[a-z0-9]{26}` from one
-  // vendor's docs — a pattern that rejects Dodo's own mixed-case ids. Validate
-  // the character set and a sane length; do not invent a prefix.
-  if (seller.dodoProductId && !/^[A-Za-z0-9_-]{6,64}$/.test(seller.dodoProductId)) {
-    console.error(`dodoProductId does not look like an identifier: ${JSON.stringify(seller.dodoProductId)}`);
-    process.exit(1);
-  }
-
-  if (!/^https:\/\/[a-z0-9.-]+\/[a-z]+$/.test(seller.dodoCheckoutBase ?? '')) {
-    console.error(`dodoCheckoutBase is not a plausible checkout base URL: ${JSON.stringify(seller.dodoCheckoutBase)}`);
+  // apiBase is load-bearing in a way it was not under the static-link model,
+  // so sanity-check its shape rather than discovering it at runtime.
+  if (seller.apiBase && !/^https:\/\/[a-z0-9.-]+$/.test(seller.apiBase)) {
+    console.error(`apiBase is not a plausible origin (no trailing slash or path): ${JSON.stringify(seller.apiBase)}`);
     process.exit(1);
   }
 }
@@ -128,13 +127,11 @@ const tokens = {
   annoyCount: group((counts.annoyNetwork ?? 0) + (counts.annoyCosmetic ?? 0)),
   // Rendered into the page as a JS boolean, so the checkout can degrade to a
   // "contact us" state rather than throwing when it is not configured yet.
-  checkoutEnabled: Boolean(seller.dodoProductId && seller.dodoCheckoutBase),
-  // The whole static payment link, assembled once here rather than in page JS.
-  // redirect_url brings the buyer back to /pricing, where the success panel
-  // reads ?payment_id= and trades it for the licence key.
-  checkoutUrl: seller.dodoProductId
-    ? `${seller.dodoCheckoutBase}/${seller.dodoProductId}?quantity=1`
-    : '',
+  //
+  // Under the static-link model this meant "is there a product id". Now the
+  // only thing the PAGE needs is somewhere to post: the Worker holds the plan
+  // id and the credentials, and answers 503 if either is missing.
+  checkoutEnabled: Boolean(seller.apiBase),
   lastUpdated: new Date().toISOString().slice(0, 10)
 };
 
@@ -221,10 +218,23 @@ for (const required of ['index.html', '404.html', 'pricing.html', 'terms.html', 
   }
 
   // The redirect back from checkout is the ONLY way a buyer reaches their key
-  // without an email pipeline. If the page stops reading payment_id, every
-  // purchase silently ends on a pricing page.
-  if (!pricing.includes("params.get('payment_id')")) {
-    problems.push('pricing.html: the post-checkout ?payment_id= handler is missing');
+  // without an email pipeline. If the page stops reading subscription_id,
+  // every purchase silently ends on a pricing page.
+  if (!pricing.includes("params.get('subscription_id')")) {
+    problems.push('pricing.html: the post-checkout ?subscription_id= handler is missing');
+  }
+
+  // The buy button is a POST to our own Worker now, not a static link. If that
+  // call goes missing the button renders and does nothing, which is worse than
+  // a button that admits it is unconfigured.
+  if (!pricing.includes("'/v1/checkout/paypal'")) {
+    problems.push('pricing.html: the /v1/checkout/paypal call is missing — the buy button would do nothing');
+  }
+
+  // Asserting the negative, because this is the claim the product is sold on
+  // and PayPal's own docs recommend the thing that would break it.
+  if (/paypal\.com\/sdk|paypalobjects\.com/i.test(pricing)) {
+    problems.push("pricing.html: loads PayPal's SDK — the privacy policy says the page loads no third-party resource");
   }
 
   // The claim "no third-party resources" is made in the privacy policy and is
@@ -259,7 +269,7 @@ console.log(`  seller       : ${seller.legalName} (${seller.jurisdiction})`);
 console.log(`  Pro price    : $${seller.priceUSD}/yr, ${seller.deviceLimit} devices`);
 console.log(`  refund window: ${seller.refundDays} days`);
 console.log(`  rule counts  : ${group(counts.freeNetwork)} network, ${group(counts.cosmeticGeneric)} cosmetic (built ${counts.builtAt})`);
-console.log(`  checkout     : ${tokens.checkoutEnabled ? `${seller.dodoMode} (${seller.dodoProductId})` : 'NOT configured'}`);
+console.log(`  checkout     : ${tokens.checkoutEnabled ? `${seller.paypalEnv} via ${seller.apiBase}/v1/checkout/paypal` : 'NOT configured'}`);
 console.log(`  seller of rec: ${seller.legalName} — payments via ${seller.processorName}`);
 console.log(`  licence API  : ${seller.apiBase || 'NOT set — keys must be issued by hand'}`);
 
@@ -276,7 +286,7 @@ console.log('     change the Chrome Web Store Privacy policy field to');
 console.log('     https://ad-interceptor.pages.dev/privacy-policy — the root is now');
 console.log('     the landing page. Update the store field first, then deploy.');
 console.log('');
-if (seller.dodoMode === 'live' && seller.salesEnabled !== true) {
+if (seller.paypalEnv === 'live' && seller.salesEnabled !== true) {
   console.log('');
   console.log('  ############################################################');
   console.log('  #  LIVE checkout config staged, sales still OFF.           #');

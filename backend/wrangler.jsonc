@@ -62,7 +62,17 @@
     // deliberately: a typo should cost sandbox traffic, never real charges
     // against the wrong environment. Flip to "live" only once a sandbox
     // purchase has minted a real key end to end.
-    "PAYPAL_ENV": "sandbox"
+    "PAYPAL_ENV": "sandbox",
+
+    // The billing plan /v1/checkout/paypal subscribes buyers to. Created by
+    // scripts/paypal-setup.mjs, which prints it. Not a secret — a plan id is
+    // public in a normal PayPal integration.
+    //
+    // MUST BE CHANGED IN THE SAME EDIT AS PAYPAL_ENV. Sandbox and live plan
+    // ids are different objects in different accounts, so a live host with a
+    // sandbox plan id fails every checkout — and the failure is a 503 the
+    // buyer reads as "contact us", not something that shows up in testing.
+    "PAYPAL_PLAN_ID": "P-71474011SD040523MNKWEWZI"
   },
 
   "observability": {
