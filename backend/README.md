@@ -67,6 +67,75 @@ Then, back in the extension root:
 3. Only now flip `PRO_ENABLED = true`. `scripts/check-pro-config.mjs` blocks
    the package if `API_BASE` is unset or still a placeholder.
 
+## PayPal setup
+
+The live provider since 2026-09-17. Do the whole thing in **sandbox** first;
+`PAYPAL_ENV` defaults to sandbox and anything other than the literal `"live"`
+stays sandbox, so a typo costs test traffic rather than real charges.
+
+**1. Create a REST app.** <https://developer.paypal.com/dashboard/applications/sandbox>
+→ Create App. Copy the **Client ID** and **Secret**.
+
+The client ID is *public* — it ends up in the browser's PayPal SDK URL, and
+belongs in `store-listing/web/seller.json`. The secret is not, and belongs only
+in a Worker secret.
+
+**2. Create the product and plan.** From the repo root:
+
+```sh
+PAYPAL_CLIENT_ID=... PAYPAL_CLIENT_SECRET=... node scripts/paypal-setup.mjs
+```
+
+Idempotent — it lists before it creates, so a second run does not leave two
+plans. That matters because a PayPal plan cannot be deleted, only deactivated.
+It prints the plan id.
+
+**3. Set the Worker secrets.** Interactive, so they never land in a file:
+
+```sh
+cd backend
+npx wrangler secret put PAYPAL_CLIENT_ID
+npx wrangler secret put PAYPAL_CLIENT_SECRET
+npx wrangler deploy
+```
+
+**4. Register the webhook.** In the same app, add a webhook pointing at:
+
+```
+https://ad-interceptor-api.ad-interceptor-api.workers.dev/v1/paypal/webhook
+```
+
+Subscribe to these event groups — the adapter's sets are built around them:
+
+| Event | Effect |
+|---|---|
+| `BILLING.SUBSCRIPTION.ACTIVATED` | mints the licence |
+| `BILLING.SUBSCRIPTION.RE-ACTIVATED` | restores it (note the hyphen) |
+| `PAYMENT.SALE.COMPLETED` | **the renewal event** — extends the expiry |
+| `BILLING.SUBSCRIPTION.UPDATED` | plan change / un-suspend |
+| `BILLING.SUBSCRIPTION.SUSPENDED` | `past_due`, recoverable |
+| `BILLING.SUBSCRIPTION.PAYMENT.FAILED` | `past_due`, recoverable |
+| `BILLING.SUBSCRIPTION.CANCELLED` | access runs to the paid-for date |
+| `BILLING.SUBSCRIPTION.EXPIRED` | same |
+| `PAYMENT.SALE.REFUNDED` / `.REVERSED` | revoked immediately |
+| `CUSTOMER.DISPUTE.*` | revoked — see the dispute note in index.js |
+
+PayPal returns a **Webhook ID** once saved. Verification needs it:
+
+```sh
+npx wrangler secret put PAYPAL_WEBHOOK_ID
+```
+
+Without it **every delivery is rejected**, not accepted unchecked — see
+`verifyPayPalSignature`. There is a second slot, `PAYPAL_WEBHOOK_ID_TEST`, so a
+sandbox app and a live app can be configured at the same time.
+
+**5. Buy it once, in sandbox.** This is the only step that proves any of the
+above. Watch `npx wrangler tail` and confirm, in order: the signature verifies,
+a key is minted, and `/v1/license/by-transaction?subscription_id=...` returns
+it. PayPal hands the buyer's browser a *subscription* id, not the sale id —
+that is why the endpoint takes both.
+
 ## Dodo setup
 
 > Moved here from Paddle on 2026-09-12. Paddle refused the account on
