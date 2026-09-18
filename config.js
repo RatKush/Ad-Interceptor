@@ -13,11 +13,19 @@
 //   - scripts/package.sh omits all of the above from the .zip and strips the
 //     pro-* entries out of the packaged manifest
 //
-// Flipping this to true is the whole "turn Pro on" change, but it is not
-// sufficient on its own: license.js still points at api.example.com
-// placeholders, and shipping it means the data disclosure must then declare
-// "Authentication information" (see store-listing/permission-justifications.md).
-export const PRO_ENABLED = false;
+// Flipping this to true is the whole "turn Pro on" change. The placeholder
+// problem it used to warn about is gone — API_BASE below is a real deployed
+// Worker and scripts/check-pro-config.mjs refuses to package a Pro build
+// otherwise — but one obligation remains and is easy to forget:
+//
+//   SHIPPING THIS MEANS THE CHROME WEB STORE DATA DISCLOSURE MUST DECLARE
+//   "Authentication information", IN THE SAME RELEASE. A licence key is a
+//   credential sent to a server. See store-listing/permission-justifications.md.
+//
+// True since 2026-09-18 for v3.3. Note this is NOT the switch that starts
+// selling: that is salesEnabled in store-listing/web/seller.json, which stays
+// false until v3.3 is PUBLISHED in the store, not merely submitted.
+export const PRO_ENABLED = true;
 
 // Base URL of the licence backend (backend/, a Cloudflare Worker).
 //
