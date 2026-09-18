@@ -152,11 +152,18 @@
   bar.id = `${PREFIX}-bar`;
   style(bar, {
     position: 'fixed', zIndex: '2147483647', left: '50%', bottom: '24px',
-    transform: 'translateX(-50%)', display: 'flex', gap: '8px', alignItems: 'center',
+    transform: 'translateX(-50%)', display: 'flex', flexDirection: 'column', gap: '8px',
     maxWidth: 'min(92vw, 720px)', padding: '10px 12px', borderRadius: '10px',
     background: '#16121d', color: '#f4f1f8', font: '13px/1.4 system-ui, sans-serif',
     boxShadow: '0 8px 32px rgba(0,0,0,0.45)', pointerEvents: 'auto'
   });
+
+  // The controls sit on their own row so the hint below gets full width. It
+  // used to share one row with the selector and the four buttons, which left
+  // it squeezed against the right edge at 12px and dimmed — effectively
+  // invisible, which is how "click to block" stayed undiscoverable.
+  const row = document.createElement('div');
+  style(row, { display: 'flex', gap: '8px', alignItems: 'center' });
 
   const label = document.createElement('code');
   style(label, {
@@ -164,9 +171,30 @@
     whiteSpace: 'nowrap', font: '12px/1.4 ui-monospace, monospace', color: '#c9a7ff'
   });
 
-  const hint = document.createElement('span');
-  style(hint, { color: '#8b8195', whiteSpace: 'nowrap', fontSize: '12px' });
-  hint.textContent = 'Esc to cancel';
+  // Two spans, not one string: the ACTION has to outrank the escape hatch
+  // visually, and a single colour cannot say that. Built as elements rather
+  // than innerHTML because this runs inside pages that actively fight ad
+  // blockers — nothing here should ever parse markup.
+  const hint = document.createElement('div');
+  style(hint, {
+    display: 'flex', gap: '8px', alignItems: 'baseline', flexWrap: 'wrap',
+    fontSize: '12.5px', lineHeight: '1.4'
+  });
+
+  const hintAction = document.createElement('span');
+  // Near-full contrast. This is an instruction, not a footnote: the click
+  // shortcut is the fastest way to use the picker and was not written down
+  // anywhere in the UI.
+  style(hintAction, { color: '#f4f1f8', fontWeight: '600' });
+  hintAction.textContent = 'Click an element to block it';
+
+  const hintMeta = document.createElement('span');
+  // Still secondary, but lifted from #8b8195 — that was below comfortable
+  // reading contrast on this background.
+  style(hintMeta, { color: '#a89fb5' });
+  hintMeta.textContent = 'Esc to cancel';
+
+  hint.append(hintAction, hintMeta);
 
   function button(text, primary) {
     const b = document.createElement('button');
@@ -184,7 +212,8 @@
   const block = button('Block', true);
   const cancel = button('Cancel');
 
-  bar.append(label, wider, narrower, block, cancel, hint);
+  row.append(label, wider, narrower, block, cancel);
+  bar.append(row, hint);
   document.documentElement.append(box, bar);
 
   // ---- Interaction ---------------------------------------------------------
@@ -212,8 +241,11 @@
     const sel = buildSelector(selected);
     const n = matchCount(sel);
     label.textContent = sel;
-    hint.textContent = n > 1 ? `matches ${n} elements · Esc to cancel` : 'Esc to cancel';
-    hint.style.color = n > 1 ? '#ffb454' : '#8b8195';
+    // The multi-match warning belongs on the META span, not the action: the
+    // instruction stays constant while the warning comes and goes, and
+    // recolouring the whole line made "Esc to cancel" look like the warning.
+    hintMeta.textContent = n > 1 ? `Matches ${n} elements · Esc to cancel` : 'Esc to cancel';
+    hintMeta.style.color = n > 1 ? '#ffb454' : '#a89fb5';
   }
 
   function onMove(e) {
