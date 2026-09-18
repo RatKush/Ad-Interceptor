@@ -591,7 +591,9 @@
        read as the same control, not a second kind of switch. */
     .pro-controls { margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.08); }
     .pro-controls .row { padding: 10px 0; }
-    .pro-actions { display: flex; gap: 8px; margin-top: 4px; }
+    /* Leads .pro-controls, so it needs a real gap under the section border
+       rather than the 4px it used when it trailed the toggle rows. */
+    .pro-actions { display: flex; gap: 8px; margin-top: 10px; }
     .pro-actions .btn { flex: 1; }
     .pro-support {
       display: block; margin-top: 10px; text-align: center;
@@ -748,6 +750,10 @@
          sales list, so showing them to a free user would be an invitation to
          click something that cannot work. -->
     <div class="pro-controls" id="proControls" hidden>
+      <div class="pro-actions">
+        <button class="btn" id="pickBtn">Block an element</button>
+        <button class="btn" id="filtersBtn">My filters</button>
+      </div>
       <label class="row">
         <span class="row-body">
           <span class="row-title">Cookie consent banners</span>
@@ -768,10 +774,6 @@
           <span class="slider"></span>
         </span>
       </label>
-      <div class="pro-actions">
-        <button class="btn" id="pickBtn">Block an element</button>
-        <button class="btn" id="filtersBtn">My filters</button>
-      </div>
       <!-- The subject tag is what makes "priority" operational rather than a
            claim: Pro mail is identifiable before it is opened. This block is
            only rendered for a licensed user, so the tag cannot be wrong.
