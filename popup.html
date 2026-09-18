@@ -384,6 +384,71 @@
 
   .pro-features svg { flex-shrink: 0; color: var(--accent); }
 
+  /* ---------- Pro feature list: collapsed once the licence is active -------
+     The list is a SALES list. Before activation it is the whole argument for
+     paying; after activation it is seven lines of things the user already
+     bought, pushing the actual controls below the fold of a 600px popup.
+     So it folds to one line and the controls come up to meet the eye.
+
+     Animated with grid-template-rows 1fr -> 0fr rather than max-height: a
+     max-height guess either clips the list or leaves the transition idling
+     through empty space, and the list's height changes with the build (free
+     vs Pro tiers ship different features). */
+  .pro-fold {
+    display: grid;
+    grid-template-rows: 1fr;
+    transition: grid-template-rows 420ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .pro-fold > * { overflow: hidden; min-height: 0; }
+
+  .pro-fold.is-folded { grid-template-rows: 0fr; }
+
+  /* Set by script for one frame when rendering an ALREADY-active licence, so
+     opening the popup shows the collapsed state outright instead of replaying
+     the animation every single time. */
+  .pro-fold.no-anim { transition: none; }
+
+  /* The one-line summary that replaces the list. A button, not a div: it is
+     genuinely clickable and needs to reach the keyboard. */
+  .pro-summary {
+    display: none;
+    width: 100%;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    padding: 0;
+    font: inherit;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .pro.is-active .pro-summary { display: flex; }
+
+  .pro-summary:hover { color: var(--text); }
+  .pro-summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+
+  .pro-summary svg { flex-shrink: 0; color: var(--accent); }
+
+  .pro-summary .chev {
+    margin-left: auto;
+    color: var(--text-faint);
+    transition: transform 420ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Points down while the list is hidden, up once it has been expanded. */
+  .pro-summary[aria-expanded="true"] .chev { transform: rotate(180deg); }
+
+  /* Respect the system setting. The fold still happens — it is a layout
+     decision, not decoration — it just happens instantly. */
+  @media (prefers-reduced-motion: reduce) {
+    .pro-fold, .pro-summary .chev { transition: none; }
+  }
+
   .pro-form {
     display: flex;
     gap: 7px;
@@ -609,6 +674,23 @@
       <span class="badge" id="proBadge">Inactive</span>
     </div>
 
+    <!-- Collapsed to a single line once the licence is active — see .pro-fold.
+         The summary is rendered but hidden until then, so nothing shifts when
+         it appears. -->
+    <button class="pro-summary" id="proSummary" type="button"
+            aria-expanded="false" aria-controls="proFold">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+        <path d="M2.5 6.2 4.8 8.5 9.5 3.5" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span id="proSummaryText">All Pro features active</span>
+      <svg class="chev" width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+        <path d="M3 4.5 6 7.5 9 4.5" stroke="currentColor" stroke-width="1.6"
+              stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
+
+    <div class="pro-fold" id="proFold">
     <ul class="pro-features" id="proFeatures">
       <li>
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
@@ -660,6 +742,7 @@
         Priority support
       </li>
     </ul>
+    </div>
 
     <!-- Shown only once a licence is active. These are live controls, not a
          sales list, so showing them to a free user would be an invitation to

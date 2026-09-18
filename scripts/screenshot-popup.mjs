@@ -87,6 +87,17 @@ const STATES = [
       document.getElementById('proBadge').classList.add('active');
       document.getElementById('proForm').hidden = true;
       document.getElementById('removeBtn').hidden = false;
+      document.getElementById('proControls').hidden = false;
+      // Mirror what renderPro() does for an active licence: the sales list
+      // folds away and the summary line replaces it. Set directly rather than
+      // calling renderPro, which would need a live licence:status round trip —
+      // but it must be kept in step, or this shot documents a UI that no
+      // licensed user ever sees.
+      document.getElementById('proCard').classList.add('is-active');
+      document.getElementById('proFold').classList.add('no-anim', 'is-folded');
+      document.getElementById('proSummary').setAttribute('aria-expanded', 'false');
+      document.getElementById('proSummaryText').textContent =
+        'All ' + document.querySelectorAll('#proFeatures li').length + ' Pro features active';
       render();`,
   },
   {

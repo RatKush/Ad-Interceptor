@@ -163,6 +163,15 @@ function initPro() {
   const activateBtn = document.getElementById('activateBtn');
   const removeBtn = document.getElementById('removeBtn');
   const message = document.getElementById('proMessage');
+  const fold = document.getElementById('proFold');
+  const summary = document.getElementById('proSummary');
+  const summaryText = document.getElementById('proSummaryText');
+
+  // Tracks what the last render showed, so the fold animates on the ACTIVATION
+  // itself and is simply already-folded on every later popup open. Without
+  // this, the list would replay its collapse each time the popup is opened,
+  // which reads as a glitch rather than as feedback.
+  let renderedActive = null;
 
   function say(text, isError) {
     message.textContent = text;
@@ -184,6 +193,26 @@ function initPro() {
     window.close();
   });
 
+  // The summary line counts the list rather than hard-coding a number: the
+  // free and Pro builds ship different feature sets, and a literal "7" would
+  // go quietly wrong the next time a tier is added.
+  function foldFeatures(folded, animate) {
+    if (!animate) {
+      fold.classList.add('no-anim');
+      // Force layout so the class lands before the state change, then drop it
+      // on the next frame — otherwise the transition is merely deferred, not
+      // skipped, and it plays anyway.
+      void fold.offsetHeight;
+    }
+    fold.classList.toggle('is-folded', folded);
+    summary.setAttribute('aria-expanded', String(!folded));
+    if (!animate) requestAnimationFrame(() => fold.classList.remove('no-anim'));
+  }
+
+  summary.addEventListener('click', () => {
+    foldFeatures(!fold.classList.contains('is-folded'), true);
+  });
+
   function renderPro(status) {
     // Free-only builds compile Pro out entirely (see config.js). Hide the
     // whole card rather than showing a licence box that cannot work, and show
@@ -203,6 +232,15 @@ function initPro() {
     // the same `status` as the badge so the card cannot show "Inactive" and a
     // working element picker at the same time.
     document.getElementById('proControls').hidden = !active;
+
+    // Fold the sales list away once the licence is active, and bring the live
+    // controls up in its place. Animated only on the transition INTO active —
+    // that is the moment the fold is feedback for.
+    card.classList.toggle('is-active', active);
+    const count = document.querySelectorAll('#proFeatures li').length;
+    summaryText.textContent = `All ${count} Pro features active`;
+    foldFeatures(active, renderedActive === false && active);
+    renderedActive = active;
   }
 
   send('license:status').then(renderPro);
