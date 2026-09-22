@@ -57,28 +57,18 @@ else is bundled in.
 
 ## Permission: storage
 
-> Stores the user's own settings and local state, and nothing else:
->
-> - the on/off switch, and the list of sites they have chosen to pause
->   blocking on (chrome.storage.sync, so they follow the user's Chrome
->   profile across their own devices);
-> - the running total of blocked requests, shown in the popup;
-> - the date the extension was installed, and a flag recording that the
->   one-time "rate this extension" prompt has already been shown, so the
->   user is never asked twice;
-> - for Pro users only: their licence key and its status, a random
->   installation identifier used to enforce the per-licence device limit,
->   two on/off switches for the optional cookie-notice and distraction
->   filters, and any filter rules the user has written themselves (again
->   chrome.storage.sync, so their own rules follow their profile). A
->   user-written rule is a CSS selector or a domain the user typed or
->   picked on screen; it is their input, not a record of their browsing.
->
-> None of this leaves the device except the licence key and the installation
-> identifier, which are sent together to the licence server (see the data
-> disclosure). The identifier is a random UUID; it is not derived from the
-> user, their browsing, or their device. There is no identifier of any kind in
-> the free version.
+> Stores the user's own settings and local state only: the on/off switch and
+> the sites they have paused (chrome.storage.sync, so they follow the user's
+> own Chrome profile); the running total of blocked requests; and the install
+> date plus a flag so the one-time "rate this extension" prompt is never shown
+> twice. For Pro users only, it also stores the licence key and its status, a
+> random installation ID used to enforce the per-licence device limit, the
+> on/off switches for the cookie-notice and distraction filters, and any
+> filter rules the user has written or picked on screen — their own input,
+> not a record of their browsing. Nothing leaves the device except the
+> licence key and installation ID, sent together to the licence server. The
+> ID is a random UUID, not derived from the user, their browsing or their
+> device. The free version stores no identifier of any kind.
 
 **Keep this list exact.** Reviewers compare a justification against what the
 code actually writes, and an undeclared key reads as concealment rather than

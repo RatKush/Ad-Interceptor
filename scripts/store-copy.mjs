@@ -102,6 +102,15 @@ console.log('    store-listing/dashboard-paste/detailed-description.txt');
 console.log(`    ${description.length} chars (limit 16,000) — paste the WHOLE file`);
 console.log('');
 console.log('  Privacy practices tab — paste each of these files:');
+// The dashboard caps every Privacy-practices field at 1,000 characters and
+// truncates silently past that, so a justification can lose its last sentence
+// — usually the one that says what does NOT happen — without anyone noticing.
+const LIMIT = 1000;
+const over = fields.filter((f) => f.text.length > LIMIT);
+if (over.length) {
+  for (const f of over) console.error(`${f.heading}: ${f.text.length} chars, over the dashboard's ${LIMIT}.`);
+  process.exit(1);
+}
 for (const f of fields) {
   const file = `permission-${f.slug}.txt`;
   await writeFile(path.join(OUT, file), f.text + '\n', 'utf8');
