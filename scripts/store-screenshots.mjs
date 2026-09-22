@@ -45,15 +45,16 @@ const dataUri = (f) => `data:image/png;base64,${readFileSync(path.join(DESIGN, f
 
 // --- real numbers, read from the built artifacts ----------------------------
 function shippedCounts() {
-  const manifest = JSON.parse(readFileSync(path.join(EXT, 'manifest.json'), 'utf8'));
-  let rules = 0;
-  for (const r of manifest.declarative_net_request.rule_resources) {
-    rules += JSON.parse(readFileSync(path.join(EXT, r.path), 'utf8')).length;
+  // FREE counts only, from filters/counts.json (written by `npm run build`).
+  // This used to sum every ruleset in manifest.json, which in a Pro build
+  // silently folds the pro/cookies/annoy rules into "blocking rules" — a
+  // number the free product does not have. counts.json is also what the
+  // description and the website quote, so the three can no longer disagree.
+  const c = JSON.parse(readFileSync(path.join(EXT, 'filters/counts.json'), 'utf8'));
+  for (const k of ['freeNetwork', 'cosmeticGeneric', 'cosmeticDomains']) {
+    if (!Number.isInteger(c[k])) throw new Error(`filters/counts.json has no ${k} — run npm run build`);
   }
-  const css = readFileSync(path.join(EXT, 'filters/filters-generic.css'), 'utf8');
-  const selectors = (css.match(/,/g) || []).length + (css.match(/\{/g) || []).length;
-  const cosmetic = JSON.parse(readFileSync(path.join(EXT, 'filters/filters-cosmetic.json'), 'utf8'));
-  return { rules, selectors, domains: Object.keys(cosmetic.specific).length };
+  return { rules: c.freeNetwork, selectors: c.cosmeticGeneric, domains: c.cosmeticDomains };
 }
 
 const N = shippedCounts();
@@ -131,15 +132,17 @@ const SLIDES = [
   {
     name: 'screenshot-2',
     html: `<div class="copy">
-      <h1>See exactly<br><span class="grad">what it stopped</span></h1>
-      <p>A live count on every page you visit, and a running total since the day you installed it.</p>
+      <h1>Go further<br><span class="grad">with Pro</span></h1>
+      <p>Cookie banners, distractions, in-stream video ads and anti-adblock walls — plus an element picker and your own filters. Optional, $14.99 a year.</p>
       <div class="badges">
-        <div class="badge">Per-page counter</div>
-        <div class="badge">Toolbar badge</div>
-        <div class="badge">Lifetime total</div>
+        <div class="badge">Block an element</div>
+        <div class="badge">Custom filters</div>
+        <div class="badge">Priority support</div>
       </div>
     </div>
-    <div class="shot"><img src="${dataUri('popup-dark.png')}"></div>`,
+    <!-- Narrower than the other slides: the licensed popup is the tallest
+         render, and at 412px wide it would overflow the 800px frame. -->
+    <div class="shot"><img style="width:360px" src="${dataUri('popup-pro.png')}"></div>`,
   },
   {
     name: 'screenshot-3',
@@ -156,10 +159,10 @@ const SLIDES = [
   {
     name: 'screenshot-4',
     html: `<div class="copy">
-      <h1>Nothing collected.<br><span class="grad">Ever.</span></h1>
-      <p>No analytics. No telemetry. No server to phone home to. Every rule ships inside the extension and runs on your machine.</p>
+      <h1>Your browsing<br><span class="grad">stays yours.</span></h1>
+      <p>No analytics. No telemetry. Every rule runs on your machine. The free version never contacts a server; Pro sends only your licence key, to check it is valid.</p>
       <div class="badges">
-        <div class="badge">Zero data collection</div>
+        <div class="badge">No browsing data</div>
         <div class="badge">No account needed</div>
         <div class="badge">Open filter lists</div>
       </div>
@@ -268,7 +271,7 @@ async function render(html, width, height, scale, outFile) {
 }
 
 // ---- main ------------------------------------------------------------------
-for (const f of ['popup-dark.png', 'popup-light.png', 'popup-paused.png']) {
+for (const f of ['popup-dark.png', 'popup-light.png', 'popup-paused.png', 'popup-pro.png']) {
   if (!existsSync(path.join(DESIGN, f))) {
     console.error(`Missing ${f} — run "npm run design" first.`);
     process.exit(1);

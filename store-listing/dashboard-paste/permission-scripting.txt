@@ -3,4 +3,7 @@ removes the empty ad-shaped gaps a blocked ad leaves behind. Two
 further scripts run only for Pro users: one that neutralises
 "disable your ad blocker" detection, and one on YouTube that removes
 advertising entries from the player's response so ads are not
-requested. These scripts modify the page only; they collect nothing.
+requested. A third, the element picker, is not registered at all: it is
+injected into the current tab only when a Pro user clicks "Block an
+element", and it removes itself when they finish or press Escape. All of
+these scripts modify the page only; they collect nothing.

@@ -68,6 +68,26 @@ for (const sec of sections) {
 
 const en = JSON.parse(await readFile(path.join(ROOT, '_locales/en/messages.json'), 'utf8'));
 
+// The dashboard answers below depend on whether this build ships Pro. Read the
+// flag rather than hardcoding the answer: the hardcoded "collects nothing" line
+// outlived PRO_ENABLED = true, and pasting it would be a false declaration.
+const configSrc = await readFile(path.join(ROOT, 'config.js'), 'utf8');
+const proMatch = configSrc.match(/export const PRO_ENABLED\s*=\s*(true|false)/);
+if (!proMatch) {
+  console.error('Could not read PRO_ENABLED from config.js.');
+  process.exit(1);
+}
+const PRO = proMatch[1] === 'true';
+
+// The Pro copy and the Pro build must travel together, in both directions.
+const describesPro = /AD INTERCEPTOR PRO/.test(description);
+if (describesPro !== PRO) {
+  console.error(PRO
+    ? 'PRO_ENABLED is true but the description has no Pro section, and still promises no network requests.'
+    : 'PRO_ENABLED is false but the description advertises Pro — the package cannot do what the listing says.');
+  process.exit(1);
+}
+
 await mkdir(OUT, { recursive: true });
 await writeFile(path.join(OUT, 'detailed-description.txt'), description + '\n', 'utf8');
 
@@ -89,12 +109,19 @@ for (const f of fields) {
   console.log(`      dashboard-paste/${file}  (${f.text.length} chars)`);
 }
 console.log('');
-console.log('  Data collection  NONE — leave every category unchecked.');
-console.log('                   Add "Authentication information" ONLY in the same');
-console.log('                   release that flips PRO_ENABLED (the licence key is');
-console.log('                   a credential sent to a server).');
+if (PRO) {
+  console.log('  Payments         "Contains in-app purchases".');
+  console.log('  Data collection  tick ONLY "Authentication information" —');
+  console.log('                   the licence key sent to the licence server.');
+  console.log('                   Purpose: App functionality. Leave every other');
+  console.log('                   category unticked; keep all three certifications.');
+} else {
+  console.log('  Payments         "Free of charge".');
+  console.log('  Data collection  NONE — leave every category unchecked.');
+}
 console.log('  Remote code      No.');
 console.log('');
 console.log('  Privacy policy   https://ad-interceptor.pages.dev/privacy-policy');
-console.log('  Data disclosure  "collects nothing" — PRO_ENABLED is false and the');
-console.log('                   package audit proves no outbound network code');
+console.log(PRO
+  ? '  Build            Pro (PRO_ENABLED = true) — upload the -pro.zip'
+  : '  Build            free (PRO_ENABLED = false) — the package audit proves no outbound network code');

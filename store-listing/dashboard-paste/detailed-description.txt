@@ -1,4 +1,4 @@
-Block ads, pop-ups, pop-unders and the trackers behind them, on every site you visit. Ad Interceptor is a free ad blocker with 106,787 blocking rules — no account, no sign-up, and nothing collected about you.
+Block ads, pop-ups, pop-unders and the trackers behind them, on every site you visit. Ad Interceptor is a free ad blocker with 109,346 blocking rules — no account, no sign-up, and nothing collected about you.
 
 ★ WHAT IT BLOCKS
 
@@ -8,7 +8,7 @@ Block ads, pop-ups, pop-unders and the trackers behind them, on every site you v
 • Ad trackers and analytics scripts
 • The empty gaps a blocked ad leaves behind
 
-★ 106,787 BLOCKING RULES, EVALUATED ON YOUR MACHINE
+★ 109,346 BLOCKING RULES, EVALUATED ON YOUR MACHINE
 
 Ad Interceptor is built on EasyList and EasyPrivacy — the community-maintained filter lists that serious ad blockers have relied on for years. Every rule ships inside the extension and is evaluated by Chrome itself, using the browser's own blocking engine.
 
@@ -18,18 +18,19 @@ No request is ever sent to us to decide what to block, because there is no "us" 
 
 Network blocking — ad and tracker requests are stopped before they leave your browser. The ad never downloads, so pages load faster and lighter.
 
-Element hiding — 13,635 rules remove the ad-shaped holes left behind, so a blocked page looks like a page, not a page with gaps in it.
+Element hiding — 13,636 rules remove the ad-shaped holes left behind, so a blocked page looks like a page, not a page with gaps in it.
 
 ★ NO "ACCEPTABLE ADS". EVER.
 
 Some popular ad blockers ship an allowlist that lets certain ads through by default, and are paid by the companies on it. Ad Interceptor has no such programme, no allowlist you have to find and switch off, and no business relationship with any ad network. Aggressive is the default, not an option you opt into.
 
-★ NO ACCOUNT. NO TELEMETRY. NOTHING COLLECTED.
+★ NO ACCOUNT. NO TELEMETRY. NO BROWSING DATA.
 
-• No sign-up, no login, no email address
+• No sign-up, no login, no account to create
 • No analytics and no telemetry of any kind
 • Your browsing history is never collected, transmitted or stored
-• The extension makes no network requests at all
+• The free version makes no network requests at all
+• Pro sends exactly one thing: your licence key, about once a day, to check it is still valid and to fetch filter updates. Never anything about the sites you visit
 
 Full privacy policy: https://ad-interceptor.pages.dev/privacy-policy
 
@@ -45,12 +46,27 @@ A live counter — see how many requests were blocked on this page, and how many
 
 Ad blocking is a moving target and no blocker catches everything. Ads served from the same address as the content itself are the hard case for every extension built on Chrome's blocking engine, including this one. If something gets through, the filter lists are updated constantly and each release picks up the latest rules.
 
+★ AD INTERCEPTOR PRO — OPTIONAL, $14.99 A YEAR
+
+The free version is not a trial and is not crippled. The full 109,346-rule filter set stays free, permanently. Pro adds the maintenance-heavy extras, for people who want the harder cases handled too:
+
+• Cookie-consent banners — the "accept cookies" pop-ups removed, using the EasyList Cookie List
+• Distractions — newsletter pop-ups, social widgets and other page clutter, using Fanboy's Annoyance List
+• In-stream video ads — removed from the player on major video platforms, not just hidden
+• Anti-adblock walls — the "please disable your ad blocker" overlays
+• Element picker — click anything on a page to hide it for good
+• Custom filters — write and manage your own blocking rules
+• Daily filter updates — new rules without waiting for an extension update
+• Priority support by email
+
+Cookie and distraction blocking can each be switched off on their own. Pro is activated with a licence key — still no account. Payment is handled by PayPal; the subscription renews yearly and can be cancelled at any time.
+
 ★ AVAILABLE IN 20 LANGUAGES
 
 English, Spanish, Portuguese, German, French, Italian, Dutch, Polish, Russian, Ukrainian, Turkish, Arabic, Hindi, Indonesian, Vietnamese, Thai, Japanese, Korean, Simplified Chinese and Traditional Chinese.
 
 ★ OPEN ABOUT WHAT IT IS
 
-Ad Interceptor is an independent browser extension. It is not affiliated with Google, Chrome, or any ad network it blocks. Filter lists are used under the Creative Commons Attribution-ShareAlike 3.0 licence and credited in the extension.
+Ad Interceptor is an independent browser extension. It is not affiliated with Google, Chrome, or any ad network it blocks. Filter lists are used under their Creative Commons licences and credited in the extension.
 
 Questions or a site that isn't blocking properly? thenightwatchcaptain@gmail.com

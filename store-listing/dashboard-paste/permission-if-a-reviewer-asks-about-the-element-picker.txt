@@ -1,0 +1,5 @@
+It runs in the isolated world, not the page's, because it only reads the
+DOM to work out which element the user is pointing at. It is injected on
+an explicit click, on that one tab, and the only thing it sends back is
+the CSS selector the user chose. It does not read page content, form
+fields, or anything the user has not clicked on.
