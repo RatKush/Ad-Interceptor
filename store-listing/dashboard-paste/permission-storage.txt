@@ -15,6 +15,8 @@ Stores the user's own settings and local state, and nothing else:
   user-written rule is a CSS selector or a domain the user typed or
   picked on screen; it is their input, not a record of their browsing.
 
-None of this leaves the device except the licence key, which is covered
-below. There is no identifier of any kind in the free version, and nothing
-stored here is derived from the user, their browsing, or their device.
+None of this leaves the device except the licence key and the installation
+identifier, which are sent together to the licence server (see the data
+disclosure). The identifier is a random UUID; it is not derived from the
+user, their browsing, or their device. There is no identifier of any kind in
+the free version.

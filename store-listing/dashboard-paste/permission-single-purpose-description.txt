@@ -1,5 +1,8 @@
-Ad Interceptor is an ad blocker. It has one function: blocking advertising
-and the trackers that come with it. It stops ad and tracker network requests
-before they load, and hides the empty containers those blocked ads leave
-behind on the page. It does nothing else — no other feature, no unrelated
-functionality.
+Ad Interceptor is a content blocker. Its single purpose is removing unwanted
+content from the pages a user visits: advertising, the trackers that come
+with it, and — in the optional Pro version — cookie-consent notices and
+other on-page annoyances such as newsletter pop-ups. It stops those network
+requests before they load, and hides the elements left behind on the page.
+Every feature serves that purpose: the element picker and custom filters let
+the user block content the lists miss, and the per-site pause lets them turn
+blocking off where it breaks a page. Nothing is unrelated to blocking.

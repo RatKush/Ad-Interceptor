@@ -1,6 +1,9 @@
-The core blocking mechanism. All rules are static JSON files bundled
-in the package (rules/*.json, ~107,000 rules generated from EasyList
-and EasyPrivacy) and evaluated by Chrome itself — the extension's own
-code never inspects network traffic. declarativeNetRequestWithHostAccess
-is required because those rules must apply across the full breadth of
-host_permissions above.
+The core blocking mechanism. The free rules are static JSON files bundled
+in the package (rules/*.json, ~109,000 rules generated from EasyList
+and EasyPrivacy), and all rules are evaluated by Chrome itself — the
+extension's own code never inspects network traffic. Pro users also get
+dynamic rules: filter updates downloaded daily from our licence server
+(declarativeNetRequest rule data only, never code), and any blocking rules
+the user writes themselves. declarativeNetRequestWithHostAccess is required
+because these rules must apply across the full breadth of host_permissions
+above.

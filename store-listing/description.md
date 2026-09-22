@@ -99,7 +99,7 @@ Some popular ad blockers ship an allowlist that lets certain ads through by defa
 • No analytics and no telemetry of any kind
 • Your browsing history is never collected, transmitted or stored
 • The free version makes no network requests at all
-• Pro sends exactly one thing: your licence key, about once a day, to check it is still valid and to fetch filter updates. Never anything about the sites you visit
+• Pro sends only your licence key and a random installation ID, about once a day, to check the licence is valid and to fetch filter updates. Never anything about the sites you visit
 
 Full privacy policy: https://ad-interceptor.pages.dev/privacy-policy
 
@@ -148,7 +148,7 @@ Questions or a site that isn't blocking properly? thenightwatchcaptain@gmail.com
 The Pro section now lives inside the paste markers above, rewritten to match
 what v3.3 actually ships (cookies, distractions, picker, custom filters,
 priority support were added after this draft). If a future release turns
-`PRO_ENABLED` off again, the Pro section AND the "Pro sends exactly one thing"
+`PRO_ENABLED` off again, the Pro section AND the "Pro sends only your licence key"
 privacy bullet must come out together, in the same release.
 
 **Ad Interceptor Pro**

@@ -160,7 +160,7 @@ const SLIDES = [
     name: 'screenshot-4',
     html: `<div class="copy">
       <h1>Your browsing<br><span class="grad">stays yours.</span></h1>
-      <p>No analytics. No telemetry. Every rule runs on your machine. The free version never contacts a server; Pro sends only your licence key, to check it is valid.</p>
+      <p>No analytics. No telemetry. Every rule runs on your machine. The free version never contacts a server. Pro only checks its licence, and never sends your browsing.</p>
       <div class="badges">
         <div class="badge">No browsing data</div>
         <div class="badge">No account needed</div>

@@ -274,12 +274,12 @@
   <dl class="facts">
     <div class="fact"><dt>Effective</dt><dd>August 29, 2026</dd></div>
     <div class="fact"><dt>Applies to</dt><dd>Ad Interceptor v3.0+</dd></div>
-    <div class="fact"><dt>Data collected</dt><dd>None (free) &middot; Licence key (Pro)</dd></div>
+    <div class="fact"><dt>Data collected</dt><dd>None (free) &middot; Licence key and a random installation ID (Pro)</dd></div>
   </dl>
 
   <div class="tldr">
     <span class="tldr-mark">TL;DR</span>
-    <p>The free version collects nothing and contacts no server &mdash; every rule ships inside the extension and runs inside your own browser. If you buy Pro, one thing changes: your licence key is sent to our server to check that it is valid, and to download updated filter rules. That is the only network request this extension ever makes, and it never carries anything about your browsing.</p>
+    <p>The free version collects nothing and contacts no server &mdash; every rule ships inside the extension and runs inside your own browser. If you buy Pro, one thing changes: your licence key, with a random installation ID, is sent to our server to check that it is valid, and to download updated filter rules. Those are the only network requests this extension ever makes, and they never carry anything about your browsing.</p>
   </div>
 
   <section>
@@ -297,12 +297,13 @@
       <li>The only data stored is your own settings &mdash; the on/off switch, the sites you have paused, and a running count of blocked requests &mdash; held in Chrome&rsquo;s <code>storage</code>, under your own Google account if Chrome Sync is enabled, never accessible to us.</li>
     </ul>
 
-    <p><strong>Pro version: your licence key, and nothing else.</strong></p>
+    <p><strong>Pro version: your licence key and a random installation ID, and nothing else.</strong></p>
     <ul>
       <li>When you activate Pro, and roughly once a day afterwards, the extension sends your licence key to our server so we can confirm it is still valid. The response says only whether the licence is active and when it expires.</li>
       <li>The same key authenticates a daily download of updated filter rules.</li>
-      <li>These requests contain your licence key and the extension version. They do not contain, and cannot be used to derive, the sites you visit, what was blocked, or anything else about your browsing.</li>
-      <li>We use the key solely to check entitlement. We do not sell it, share it, or use it to build a profile.</li>
+      <li>These requests contain your licence key, the extension version, and an installation ID. The installation ID is a random value the extension generates the first time you activate Pro on a browser; it is not derived from you, your device or your browser, and it is not shared between your devices. We store it with your licence, together with the version and when it was first and last seen, only to count how many browsers a licence is active on so the device limit can be enforced.</li>
+      <li>These requests do not contain, and cannot be used to derive, the sites you visit, what was blocked, or anything else about your browsing.</li>
+      <li>We use the key and installation ID solely to check entitlement. We do not sell it, share it, or use it to build a profile.</li>
     </ul>
   </section>
 

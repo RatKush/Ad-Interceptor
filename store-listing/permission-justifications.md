@@ -10,11 +10,14 @@ the most common cause of rejection.
 
 ## Single purpose description
 
-> Ad Interceptor is an ad blocker. It has one function: blocking advertising
-> and the trackers that come with it. It stops ad and tracker network requests
-> before they load, and hides the empty containers those blocked ads leave
-> behind on the page. It does nothing else — no other feature, no unrelated
-> functionality.
+> Ad Interceptor is a content blocker. Its single purpose is removing unwanted
+> content from the pages a user visits: advertising, the trackers that come
+> with it, and — in the optional Pro version — cookie-consent notices and
+> other on-page annoyances such as newsletter pop-ups. It stops those network
+> requests before they load, and hides the elements left behind on the page.
+> Every feature serves that purpose: the element picker and custom filters let
+> the user block content the lists miss, and the per-site pause lets them turn
+> blocking off where it breaks a page. Nothing is unrelated to blocking.
 
 Deliberately NOT keyword-optimised. This field is not indexed for store
 search; it is a policy statement a reviewer reads to check the extension does
@@ -34,12 +37,15 @@ else is bundled in.
 
 ## Permission: declarativeNetRequest / declarativeNetRequestWithHostAccess
 
-> The core blocking mechanism. All rules are static JSON files bundled
-> in the package (rules/*.json, ~107,000 rules generated from EasyList
-> and EasyPrivacy) and evaluated by Chrome itself — the extension's own
-> code never inspects network traffic. declarativeNetRequestWithHostAccess
-> is required because those rules must apply across the full breadth of
-> host_permissions above.
+> The core blocking mechanism. The free rules are static JSON files bundled
+> in the package (rules/*.json, ~109,000 rules generated from EasyList
+> and EasyPrivacy), and all rules are evaluated by Chrome itself — the
+> extension's own code never inspects network traffic. Pro users also get
+> dynamic rules: filter updates downloaded daily from our licence server
+> (declarativeNetRequest rule data only, never code), and any blocking rules
+> the user writes themselves. declarativeNetRequestWithHostAccess is required
+> because these rules must apply across the full breadth of host_permissions
+> above.
 
 ## Permission: declarativeNetRequestFeedback
 
@@ -68,9 +74,11 @@ else is bundled in.
 >   user-written rule is a CSS selector or a domain the user typed or
 >   picked on screen; it is their input, not a record of their browsing.
 >
-> None of this leaves the device except the licence key, which is covered
-> below. There is no identifier of any kind in the free version, and nothing
-> stored here is derived from the user, their browsing, or their device.
+> None of this leaves the device except the licence key and the installation
+> identifier, which are sent together to the licence server (see the data
+> disclosure). The identifier is a random UUID; it is not derived from the
+> user, their browsing, or their device. There is no identifier of any kind in
+> the free version.
 
 **Keep this list exact.** Reviewers compare a justification against what the
 code actually writes, and an undeclared key reads as concealment rather than
