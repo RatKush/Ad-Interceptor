@@ -14,25 +14,63 @@
   <a href="/privacy-policy">Privacy</a>
 </nav>
 
+<!-- Chrome opens this page after an uninstall (setUninstallURL in
+     background.js, which appends ?v=<version>). It used to be a list of
+     mailto: links: open a mail app, press send. That is too much to ask of
+     someone who is leaving, so one tap now records the reason with our own
+     Worker (POST /v1/feedback) and the note box is optional. The mailto
+     route stays as the fallback when the request fails. -->
 <main>
   <p class="eyebrow">Ad Interceptor was removed</p>
   <h1>What went wrong?</h1>
   <p class="subtitle">
-    One tap tells us — it opens a pre-written email, and nothing is sent unless
-    you press send. It is the only way we learn why people leave.
+    One tap tells us. No email, no account &mdash; it is the only way we learn
+    what to fix.
   </p>
 
-  <section>
-    <ul class="features">
-      <li><a href="mailto:{{contactEmail}}?subject=Uninstall%3A%20YouTube%20ads%20still%20showed">YouTube / video ads still showed</a></li>
-      <li><a href="mailto:{{contactEmail}}?subject=Uninstall%3A%20a%20site%20broke&amp;body=The%20site%20was%3A%20">A website stopped working</a></li>
-      <li><a href="mailto:{{contactEmail}}?subject=Uninstall%3A%20ads%20got%20through&amp;body=The%20site%20was%3A%20">Ads still got through</a></li>
-      <li><a href="mailto:{{contactEmail}}?subject=Uninstall%3A%20%22disable%20your%20ad%20blocker%22%20wall&amp;body=The%20site%20was%3A%20">A site told me to disable my ad blocker</a></li>
-      <li><a href="mailto:{{contactEmail}}?subject=Uninstall%3A%20could%20not%20tell%20it%20was%20working">I couldn't tell it was doing anything</a></li>
-      <li><a href="mailto:{{contactEmail}}?subject=Uninstall%3A%20other">Something else</a></li>
-    </ul>
-    <p class="note">Changed your mind? Ad Interceptor is still free on the Chrome Web Store.</p>
-  </section>
+  <div class="reasons" id="reasons" role="group" aria-label="Why you removed Ad Interceptor">
+    <button type="button" class="reason" data-reason="youtube">
+      <span class="reason-title">YouTube ads still played</span>
+      <span class="reason-sub">Or other video ads</span>
+    </button>
+    <button type="button" class="reason" data-reason="site-broke">
+      <span class="reason-title">A website stopped working</span>
+      <span class="reason-sub">Something on a page broke</span>
+    </button>
+    <button type="button" class="reason" data-reason="ads-through">
+      <span class="reason-title">Ads still got through</span>
+      <span class="reason-sub">Banners or pop-ups showed</span>
+    </button>
+    <button type="button" class="reason" data-reason="adblock-wall">
+      <span class="reason-title">A site asked me to turn it off</span>
+      <span class="reason-sub">&ldquo;Disable your ad blocker&rdquo;</span>
+    </button>
+    <button type="button" class="reason" data-reason="no-effect">
+      <span class="reason-title">I couldn&rsquo;t tell it was working</span>
+      <span class="reason-sub">Nothing seemed different</span>
+    </button>
+    <button type="button" class="reason" data-reason="slow">
+      <span class="reason-title">It slowed Chrome down</span>
+      <span class="reason-sub">Pages or the browser felt slow</span>
+    </button>
+    <button type="button" class="reason reason-wide" data-reason="other">
+      <span class="reason-title">Something else</span>
+    </button>
+  </div>
+
+  <div class="followup" id="followup" hidden>
+    <p class="followup-status" id="status" role="status" aria-live="polite"></p>
+    <form id="noteForm">
+      <label class="followup-label" for="note" id="noteLabel">Anything else we should know? (optional)</label>
+      <textarea id="note" rows="3" maxlength="1000"></textarea>
+      <div class="followup-actions">
+        <button type="submit" class="installcta" id="sendNote">Send</button>
+        <a class="followup-alt" id="mailFallback" href="mailto:{{contactEmail}}" hidden>Email us instead</a>
+      </div>
+    </form>
+  </div>
+
+  <p class="note back">Changed your mind? <a href="{{webStoreUrl}}" rel="noopener">Ad Interceptor is still free on the Chrome Web Store.</a></p>
 </main>
 
 <footer>
@@ -40,5 +78,106 @@
   <p>Ad Interceptor Pro is sold by {{legalName}} ({{jurisdiction}}). Payments are processed by {{processorName}}.</p>
   <p><a href="/pricing">Pricing</a> &middot; <a href="/terms">Terms &amp; Conditions</a> &middot; <a href="/refunds">Refund Policy</a> &middot; <a href="/privacy-policy">Privacy Policy</a> &middot; <a href="mailto:{{contactEmail}}">{{contactEmail}}</a></p>
 </footer>
+
+<script>
+  (function () {
+    var API_BASE = "{{apiBase}}";
+    var CONTACT = "{{contactEmail}}";
+
+    var version = new URLSearchParams(location.search).get('v') || '';
+    var reasons = document.getElementById('reasons');
+    var followup = document.getElementById('followup');
+    var status = document.getElementById('status');
+    var form = document.getElementById('noteForm');
+    var note = document.getElementById('note');
+    var noteLabel = document.getElementById('noteLabel');
+    var sendNote = document.getElementById('sendNote');
+    var mailFallback = document.getElementById('mailFallback');
+
+    // Reasons where the site name is the single most useful thing to know.
+    var ASK_SITE = { 'site-broke': 1, 'ads-through': 1, 'adblock-wall': 1 };
+
+    var id = null;       // the row the Worker made for the first tap
+    var reason = null;
+    var label = '';
+
+    function post(body) {
+      if (!API_BASE) return Promise.reject(new Error('no api'));
+      return fetch(API_BASE + '/v1/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      }).then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      });
+    }
+
+    function setStatus(text, isError) {
+      status.textContent = text;
+      status.classList.toggle('is-error', !!isError);
+    }
+
+    // Offered only when a request fails, so the message is never lost.
+    function showMailFallback(text) {
+      var subject = 'Uninstall: ' + label;
+      var body = (text ? text + '\n\n' : '') + (version ? 'Version ' + version : '');
+      mailFallback.href = 'mailto:' + CONTACT + '?subject=' + encodeURIComponent(subject) +
+        '&body=' + encodeURIComponent(body);
+      mailFallback.hidden = false;
+    }
+
+    reasons.addEventListener('click', function (e) {
+      var btn = e.target.closest('.reason');
+      if (!btn) return;
+      reason = btn.getAttribute('data-reason');
+      label = btn.querySelector('.reason-title').textContent;
+
+      reasons.querySelectorAll('.reason').forEach(function (b) {
+        b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
+      });
+      reasons.classList.add('has-choice');
+
+      noteLabel.textContent = ASK_SITE[reason]
+        ? 'Which site was it? Anything else? (optional)'
+        : 'Anything else we should know? (optional)';
+      followup.hidden = false;
+      // On a phone the thank-you box sits below the fold; bring it up so the
+      // tap visibly did something.
+      followup.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      setStatus('Sending…');
+      mailFallback.hidden = true;
+
+      post({ reason: reason, version: version, id: id || undefined }).then(function (res) {
+        id = res.id;
+        setStatus('Thank you — that’s been sent.');
+      }, function () {
+        setStatus('That didn’t go through. You can email us instead.', true);
+        showMailFallback('');
+      });
+    });
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var text = note.value.trim();
+      if (!text || !reason) { note.focus(); return; }
+      sendNote.disabled = true;
+      sendNote.textContent = 'Sending…';
+      post({ reason: reason, comment: text, version: version, id: id || undefined }).then(function (res) {
+        id = res.id;
+        form.hidden = true;
+        // The note belongs to the reason it was written under; stop a stray
+        // tap from re-labelling it.
+        reasons.querySelectorAll('.reason').forEach(function (b) { b.disabled = true; });
+        setStatus('Got it. Thank you for taking the time.');
+      }, function () {
+        sendNote.disabled = false;
+        sendNote.textContent = 'Send';
+        setStatus('That didn’t go through. You can email it instead.', true);
+        showMailFallback(text);
+      });
+    });
+  })();
+</script>
 </body>
 </html>

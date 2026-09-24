@@ -5,6 +5,8 @@
 //   POST /v1/checkout/paypal    { origin } -> { approveUrl }   (starts a checkout)
 //   POST /v1/paypal/webhook     PayPal notifications
 //   POST /v1/dodo/webhook       Dodo Payments notifications
+//   POST /v1/feedback           { reason, comment?, version?, id? } -> { ok, id }  (uninstall page)
+//   GET  /v1/admin/feedback     Authorization: Bearer <ADMIN_TOKEN>  (?days=30: counts + notes)
 //   POST /v1/admin/filters      Authorization: Bearer <ADMIN_TOKEN>  (publish a filter build)
 //   POST /v1/admin/license      Authorization: Bearer <ADMIN_TOKEN>  (issue a comp/support key)
 //   GET  /health
@@ -76,6 +78,15 @@ const ADAPTERS = {
 };
 
 const FILTERS_KV_KEY = 'pro-filters:latest';
+
+// The reasons the uninstall page offers. A fixed set so the counts stay
+// comparable over time; anything else is refused rather than stored.
+const FEEDBACK_REASONS = new Set([
+  'youtube', 'site-broke', 'ads-through', 'adblock-wall', 'no-effect', 'slow', 'other'
+]);
+const FEEDBACK_COMMENT_MAX = 1000;
+// How long after the tap the typed note may still be attached to it.
+const FEEDBACK_EDIT_WINDOW_MS = 60 * 60 * 1000;
 const ACTIVATION_TTL_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
 
 const CORS = {
@@ -721,6 +732,69 @@ export default {
       // fault while a buyer waits for a key that will never come.
       if (path === '/v1/paddle/webhook') {
         return json({ error: 'gone: this integration moved to PayPal' }, 410);
+      }
+
+      // --- uninstall feedback ----------------------------------------------
+      // The page Chrome opens after an uninstall posts here the moment a
+      // reason is tapped — asking someone who is leaving to open their mail app
+      // and press send is asking too much. A follow-up post with the returned id attaches
+      // the optional note to that same row.
+      //
+      // Deliberately stores no IP and no identifier: the reason, the note, the
+      // extension version and Cloudflare's country code. The privacy policy
+      // says exactly that, so adding a column here means editing it too.
+      if (path === '/v1/feedback' && request.method === 'POST') {
+        if (env.VALIDATE_LIMITER) {
+          const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+          const { success } = await env.VALIDATE_LIMITER.limit({ key: `feedback:${ip}` });
+          if (!success) return json({ error: 'rate limited' }, 429, { 'Retry-After': '60' });
+        }
+
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'invalid json' }, 400); }
+
+        const reason = String(body?.reason ?? '');
+        if (!FEEDBACK_REASONS.has(reason)) return json({ error: 'unknown reason' }, 400);
+        const comment = typeof body?.comment === 'string'
+          ? body.comment.trim().slice(0, FEEDBACK_COMMENT_MAX) || null
+          : null;
+        const version = /^\d+(\.\d+){0,3}$/.test(String(body?.version ?? '')) ? String(body.version) : null;
+        const now = Date.now();
+
+        // Second post: the note (or a changed reason) for a row made moments ago.
+        if (typeof body?.id === 'string' && /^[0-9a-f-]{36}$/.test(body.id)) {
+          const { meta } = await env.DB.prepare(
+            `UPDATE feedback SET reason = ?, comment = COALESCE(?, comment), updated_at = ?
+              WHERE id = ? AND created_at > ?`
+          ).bind(reason, comment, now, body.id, now - FEEDBACK_EDIT_WINDOW_MS).run();
+          if (meta?.changes) return json({ ok: true, id: body.id });
+          // Expired or unknown id: fall through and record it as a new row.
+        }
+
+        const id = crypto.randomUUID();
+        await env.DB.prepare(
+          `INSERT INTO feedback (id, product, reason, comment, version, country, created_at, updated_at)
+           VALUES (?, 'ad-interceptor', ?, ?, ?, ?, ?, ?)`
+        ).bind(id, reason, comment, version, request.cf?.country ?? null, now, now).run();
+        return json({ ok: true, id });
+      }
+
+      // --- admin: read uninstall feedback --------------------------------
+      if (path === '/v1/admin/feedback' && request.method === 'GET') {
+        const denied = requireAdmin(request, env);
+        if (denied) return denied;
+
+        const days = Math.min(Math.max(Number(url.searchParams.get('days')) || 30, 1), 365);
+        const since = Date.now() - days * 24 * 60 * 60 * 1000;
+        const counts = await env.DB.prepare(
+          `SELECT reason, COUNT(*) AS n FROM feedback WHERE created_at > ?
+            GROUP BY reason ORDER BY n DESC`
+        ).bind(since).all();
+        const notes = await env.DB.prepare(
+          `SELECT reason, comment, version, country, created_at FROM feedback
+            WHERE created_at > ? AND comment IS NOT NULL ORDER BY created_at DESC LIMIT 200`
+        ).bind(since).all();
+        return json({ days, counts: counts.results, notes: notes.results });
       }
 
       // --- admin: publish a filter build ---------------------------------

@@ -781,8 +781,10 @@ async function startup() {
 // ----------------------------
 // Where Chrome sends people who uninstall. A navigation target on our own site
 // (allowed by scripts/audit-package.mjs), not a request: nothing is sent from
-// the extension. It is the only way to learn why people leave.
-const UNINSTALL_URL = 'https://ad-interceptor.pages.dev/uninstall';
+// the extension. It is the only way to learn why people leave. The version
+// rides along in the query so feedback can be tied to a release.
+const UNINSTALL_URL = 'https://ad-interceptor.pages.dev/uninstall?v=' +
+  encodeURIComponent(chrome.runtime.getManifest().version);
 
 chrome.runtime.onInstalled.addListener(async (details) => {
   await migrateFromV2();

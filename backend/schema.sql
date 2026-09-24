@@ -99,3 +99,17 @@ CREATE TABLE IF NOT EXISTS webhook_events (
   received_at INTEGER NOT NULL,
   payload     TEXT NOT NULL
 );
+
+-- Uninstall feedback: one row per tap on the uninstall page, plus its
+-- optional note. Stores no IP and no identifier. See migrations/005-feedback.
+CREATE TABLE IF NOT EXISTS feedback (
+  id          TEXT PRIMARY KEY,         -- random UUID, lets the page attach its note
+  product     TEXT NOT NULL,
+  reason      TEXT NOT NULL,            -- one of FEEDBACK_REASONS in index.js
+  comment     TEXT,                     -- optional, at most 1,000 characters
+  version     TEXT,                     -- extension version, from the uninstall URL
+  country     TEXT,                     -- Cloudflare two-letter code; no IP is kept
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback (created_at);
