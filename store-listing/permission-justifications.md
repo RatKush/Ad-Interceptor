@@ -83,6 +83,17 @@ written only from the Pro controls in the popup and the options page, both of
 which are unreachable without an active licence. The free build reads their
 defaults and never writes them.
 
+## Permission: alarms
+
+Added in 3.4. Paste into the dashboard's alarms justification field:
+
+> Schedules one repeating background check every six hours. For a Pro user it
+> re-checks the licence, so a renewal, an expiry or a refund takes effect
+> without restarting Chrome, and refreshes the Pro filter rules. Without an
+> active licence it only re-applies the extension's own blocking settings. It
+> sends nothing about the user or their browsing and runs no code from outside
+> the package.
+
 ## Permission: scripting
 
 > Registers the on-page code that does element hiding — the part that

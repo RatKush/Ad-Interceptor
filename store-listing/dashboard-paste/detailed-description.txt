@@ -46,7 +46,7 @@ A live counter — see how many requests were blocked on this page, and how many
 
 Ad blocking is a moving target and no blocker catches everything. Ads served from the same address as the content itself are the hard case for every extension built on Chrome's blocking engine, including this one. If something gets through, the filter lists are updated constantly and each release picks up the latest rules.
 
-★ AD INTERCEPTOR PRO — OPTIONAL, $14.99 A YEAR
+★ AD INTERCEPTOR PRO — OPTIONAL, $14.99 FOR 12 MONTHS
 
 The free version is not a trial and is not crippled. The full 109,346-rule filter set stays free, permanently. Pro adds the maintenance-heavy extras, for people who want the harder cases handled too:
 
@@ -59,7 +59,7 @@ The free version is not a trial and is not crippled. The full 109,346-rule filte
 • Daily filter updates — new rules without waiting for an extension update
 • Priority support by email
 
-Cookie and distraction blocking can each be switched off on their own. Pro is activated with a licence key — still no account. Payment is handled by PayPal; the subscription renews yearly and can be cancelled at any time.
+Cookie and distraction blocking can each be switched off on their own. Pro is activated with a licence key — still no account. It is one payment for 12 months, by card or PayPal, and it never renews automatically: the extension reminds you before Pro ends, and renewing adds 12 months to the same key.
 
 ★ AVAILABLE IN 20 LANGUAGES
 

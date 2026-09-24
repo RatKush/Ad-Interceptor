@@ -1,0 +1,6 @@
+Schedules one repeating background check every six hours. For a Pro user it
+re-checks the licence, so a renewal, an expiry or a refund takes effect
+without restarting Chrome, and refreshes the Pro filter rules. Without an
+active licence it only re-applies the extension's own blocking settings. It
+sends nothing about the user or their browsing and runs no code from outside
+the package.
