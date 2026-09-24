@@ -173,7 +173,7 @@ async function evaluateKey(env, rawKey, installId, version) {
           valid: false,
           plan: 'free',
           expiresAt: row.expires_at ?? null,
-          reason: `This key is already in use on ${limit} devices. Remove one, or contact support.`
+          reason: `This key is already in use on ${limit} ${limit === 1 ? 'device' : 'devices'}. Remove one, or contact support.`
         };
       }
       await env.DB.prepare(

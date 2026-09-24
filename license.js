@@ -52,6 +52,18 @@ async function installId() {
   return fresh;
 }
 
+// Same canonical form backend/src/keys.js normalizeKey() produces, so the key
+// stored (and sent as the Bearer token every day) is "AI3-XXXXX-…" however it
+// was pasted. Anything that doesn't fit the format is passed through trimmed
+// and left for the server to judge.
+function canonicalKey(input) {
+  const raw = String(input || '').trim();
+  const cleaned = raw.toUpperCase().replace(/[^0-9A-Z]/g, '');
+  if (!cleaned.startsWith('AI3') || cleaned.length !== 23) return raw;
+  const body = cleaned.slice(3);
+  return `AI3-${body.match(/.{5}/g).join('-')}`;
+}
+
 async function readLicense() {
   const { license } = await chrome.storage.local.get('license');
   return { ...EMPTY, ...(license || {}) };
@@ -88,7 +100,7 @@ export async function isPro() {
  * check*, which is distinct from a *negative answer* (ok: true, plan: 'free').
  */
 export async function validateLicense(key) {
-  const trimmed = (key || '').trim();
+  const trimmed = canonicalKey(key);
   if (!trimmed) return { ok: false, error: 'Enter a licence key.' };
 
   try {

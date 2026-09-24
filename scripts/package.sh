@@ -48,6 +48,7 @@ node scripts/check-pro-config.mjs
 # the editor.
 cp manifest.json background.js config.js popup.html popup.js cosmetic.js \
    userfilters.js options.html options.js \
+   welcome.html welcome.js blocked.html blocked.js \
    ATTRIBUTION.md "$STAGE/"
 cp -R icons "$STAGE/"
 
@@ -72,6 +73,21 @@ if [ "$PRO" = "true" ]; then
 
   cp license.js scriptlets.js youtube.js picker.js "$STAGE/"
   cp rules/pro-*.json rules/cookies-*.json rules/annoy-*.json "$STAGE/rules/"
+
+  # Every Pro ruleset shipped must also be DECLARED, or syncStaticRulesets()
+  # can never enable it. v3.3-pro shipped all three files but a manifest built
+  # while PRO_ENABLED was still false, so paying users got the stylesheets and
+  # none of the network rules.
+  python3 - manifest.json <<'PYDECL'
+import json, sys, glob, os
+declared = {r['id'] for r in json.load(open(sys.argv[1]))['declarative_net_request']['rule_resources']}
+shipped = {os.path.basename(p)[:-5] for p in glob.glob('rules/*.json')
+           if os.path.basename(p).startswith(('pro-', 'cookies-', 'annoy-'))}
+missing = sorted(shipped - declared)
+if missing:
+    sys.exit(f"package.sh: Pro build ships rulesets the manifest does not declare: {', '.join(missing)} "
+             "(run `npm run build` with PRO_ENABLED = true)")
+PYDECL
   cp filters/pro-generic.css filters/pro-cosmetic.json \
      filters/cookies-generic.css filters/cookies-cosmetic.json \
      filters/annoy-generic.css filters/annoy-cosmetic.json "$STAGE/filters/"

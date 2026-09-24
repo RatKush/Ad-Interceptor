@@ -31,6 +31,7 @@
  */
 import { FilterConverter, Filter } from '@adguard/dnr-converter';
 import { writeFile, readFile, mkdir, rm } from 'node:fs/promises';
+import { redirectMainFrameBlocks } from './popup-redirect.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PRO_ENABLED } from '../config.js';
@@ -261,7 +262,10 @@ async function buildTier(sources, prefix, enableFirst) {
   const rulesets = [];
   for (const [i, rules] of chunks.entries()) {
     const id = `${prefix}-${i + 1}`;
-    await writeFile(path.join(ROOT, `rules/${id}.json`), JSON.stringify(rules), 'utf8');
+    // Pop-up / pop-under blocks redirect to blocked.html rather than leaving a
+    // blank tab open (see scripts/popup-redirect.mjs).
+    const { rules: shipped } = redirectMainFrameBlocks(rules);
+    await writeFile(path.join(ROOT, `rules/${id}.json`), JSON.stringify(shipped), 'utf8');
     // Only the free tier's first chunk is enabled in the manifest. Everything
     // else is turned on by background.js — the rest of the free chunks as
     // quota allows, the Pro chunks only for licensed users.

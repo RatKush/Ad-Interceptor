@@ -246,12 +246,12 @@ async function syncUserRules(pro) {
 // for a store release. It lands in the dynamic store, which is otherwise
 // unused now that all 108,065 shipped rules fit in static rulesets — so this
 // is additive on top of the free tier's full coverage, not a carve-out of it.
-async function refreshProFilters() {
+async function refreshProFilters({ force = false } = {}) {
   if (!PRO_ENABLED) return;
   if (!(await isPro())) return;
 
   const { proFiltersAt = 0 } = await chrome.storage.local.get('proFiltersAt');
-  if (Date.now() - proFiltersAt < PRO_FILTER_REFRESH_MS) return;
+  if (!force && Date.now() - proFiltersAt < PRO_FILTER_REFRESH_MS) return;
 
   const rules = await fetchProFilters();
   if (!rules) return; // server down or not entitled — bundled rules stay in place
@@ -261,17 +261,45 @@ async function refreshProFilters() {
   console.log(`✨ Refreshed ${count} Pro filter rules`);
 }
 
+// The server block is Pro-only. writeFilterRules([]) clears exactly that
+// partition; without this an expired or lapsed licence kept every
+// server-delivered rule active indefinitely.
+async function clearProFilters() {
+  const existing = await chrome.declarativeNetRequest.getDynamicRules();
+  if (!existing.some((r) => r.id >= FILTER_ID_BASE)) return;
+  await writeFilterRules([]);
+  await chrome.storage.local.remove('proFiltersAt');
+}
+
+// "Daily" has to mean daily for people who never restart Chrome: startup()
+// alone only ran on install and browser launch. The 24 h gate inside
+// refreshProFilters() still decides whether a check actually fetches.
+const PRO_FILTER_ALARM = 'pro-filters';
+if (PRO_ENABLED && chrome.alarms) {
+  chrome.alarms.onAlarm.addListener(async (alarm) => {
+    if (alarm.name !== PRO_FILTER_ALARM) return;
+    // A licence can lapse just by time passing (expiry, 7-day offline grace)
+    // with no storage write to trigger a reconcile, so re-check it here too.
+    if (await isPro()) await refreshProFilters().catch(() => {});
+    else await refreshAll().catch(() => {});
+  });
+}
+
 // ----------------------------
 // 🔢 Blocked counter
 // ----------------------------
-// Counts network requests actually blocked, via getMatchedRules — the real
-// match log, not an estimate. Deliberately does NOT include cosmetic hiding:
-// generic.css hides elements through the CSS engine with no JS involved, so
-// counting those would mean querying 13,634 selectors per page. The popup
-// therefore says "requests blocked", which is exactly what this number is.
+// Counts network requests actually blocked. Deliberately does NOT include
+// cosmetic hiding: generic.css hides elements through the CSS engine with no
+// JS involved, so counting those would mean querying 13,634 selectors per
+// page. The popup therefore says "requests blocked", which is exactly what
+// this number is.
 //
-// Chrome only retains matches for ~5 minutes, and the count is per page load,
-// so each navigation records a fresh baseline timestamp.
+// The per-page count is Chrome's own (displayActionCountAsBadgeText), read
+// back with getBadgeText. It used to come from getMatchedRules, which Chrome
+// caps at 20 calls per 10 minutes outside a user gesture: at two calls per
+// page load the badge went blank after about ten pages, the popup said
+// "0 blocked on this page" while ads were being blocked, and the lifetime
+// total (and with it the review prompt) froze. getBadgeText has no quota.
 //
 // Kept in storage.session, NOT a Map. The service worker is torn down whenever
 // the browser feels like it, routinely between a tab's `loading` and
@@ -284,9 +312,9 @@ const tabKey = (tabId) => `tab:${tabId}`;
 async function getTabState(tabId) {
   const key = tabKey(tabId);
   const stored = await chrome.storage.session.get(key);
-  // No record (first sight of this tab, or session storage cleared): count
-  // everything Chrome still holds for the tab rather than reporting zero.
-  return stored[key] || { navStart: 0, counted: 0 };
+  // No record (first sight of this tab, or session storage cleared): nothing
+  // counted yet, so the next sample adds the whole of the tab's current count.
+  return stored[key] || { counted: 0 };
 }
 
 const setTabState = (tabId, state) =>
@@ -312,44 +340,49 @@ function addToTotal(delta) {
   return totalWrite;
 }
 
-async function updateBadge(tabId) {
-  const { ads } = await chrome.storage.sync.get({ ads: true });
-  if (!ads) {
-    await chrome.action.setBadgeText({ tabId, text: '' }).catch(() => {});
-    return;
-  }
+// Chrome draws the badge itself from here on; nothing below may call
+// setBadgeText for a tab, because an explicit value replaces the live count.
+async function enableNativeCount() {
+  await chrome.declarativeNetRequest
+    .setExtensionActionOptions({ displayActionCountAsBadgeText: true })
+    .catch((err) => console.warn('⚠️ action count unavailable:', err.message));
+  await chrome.action.setBadgeBackgroundColor({ color: '#9b3bff' }).catch(() => {});
+}
 
-  const state = await getTabState(tabId);
-
-  let count = 0;
+/** This page's blocked count as Chrome shows it, or null if the tab is gone. */
+async function readPageCount(tabId) {
   try {
-    const { rulesMatchedInfo } = await chrome.declarativeNetRequest.getMatchedRules({
-      tabId,
-      minTimeStamp: state.navStart
-    });
-    count = rulesMatchedInfo.length;
+    return parseInt(await chrome.action.getBadgeText({ tabId }), 10) || 0;
   } catch (e) {
-    return; // tab closed mid-flight
+    return null;
   }
+}
 
-  await addToTotal(count - state.counted);
-  await setTabState(tabId, { ...state, counted: count });
-
-  await chrome.action.setBadgeText({ tabId, text: count ? String(count) : '' }).catch(() => {});
-  await chrome.action.setBadgeBackgroundColor({ tabId, color: '#9b3bff' }).catch(() => {});
+// Folds whatever the page has blocked since the last sample into the lifetime
+// total. Chrome resets its count on navigation; a count lower than what was
+// last recorded therefore means a new page, and all of it is new.
+async function sampleTab(tabId) {
+  const count = await readPageCount(tabId);
+  if (count == null) return null;
+  const state = await getTabState(tabId);
+  const delta = count >= state.counted ? count - state.counted : count;
+  await addToTotal(delta);
+  await setTabState(tabId, { counted: count });
+  return count;
 }
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
   if (changeInfo.status === 'loading') {
-    // New page — reset the baseline so the badge shows this page, not the last.
-    await setTabState(tabId, { navStart: Date.now(), counted: 0 });
-    await chrome.action.setBadgeText({ tabId, text: '' }).catch(() => {});
+    // Catch the tail of the previous page before Chrome's count moves on.
+    await sampleTab(tabId);
+    await setTabState(tabId, { counted: 0 });
   }
   if (changeInfo.status === 'complete') {
-    // Ads keep loading after `complete` fires, so sample again shortly after
-    // rather than freezing the count at load time.
-    await updateBadge(tabId);
-    setTimeout(() => updateBadge(tabId), 2000);
+    // Ads keep loading after `complete` fires, so sample again later rather
+    // than freezing the count at load time. Sampling is free now.
+    await sampleTab(tabId);
+    setTimeout(() => sampleTab(tabId), 3000);
+    setTimeout(() => sampleTab(tabId), 15000);
   }
 });
 
@@ -633,14 +666,22 @@ const HANDLERS = {
   'picker:start': async (msg) => {
     if (!PRO_ENABLED || !(await isPro())) return { error: 'The element picker needs Pro.' };
     if (msg.tabId == null) return { error: 'No page to pick from.' };
-    try {
-      await chrome.scripting.executeScript({ target: { tabId: msg.tabId }, files: ['picker.js'] });
-      return { ok: true };
-    } catch (e) {
-      // chrome://, the Web Store, PDF viewer, and any page the user has not
-      // granted host access to. Say so plainly instead of failing silently.
-      return { error: 'This page does not allow extensions to run.' };
+    // A page that is still loading has not committed yet, and injecting into
+    // it fails exactly like a forbidden page does. Retry briefly before
+    // telling the user the page is off limits.
+    for (let attempt = 0; attempt < 6; attempt++) {
+      try {
+        await chrome.scripting.executeScript({ target: { tabId: msg.tabId }, files: ['picker.js'] });
+        return { ok: true };
+      } catch (e) {
+        const tab = await chrome.tabs.get(msg.tabId).catch(() => null);
+        if (!tab || tab.status !== 'loading') break;
+        await new Promise((r) => setTimeout(r, 500));
+      }
     }
+    // chrome://, the Web Store, PDF viewer, and any page the user has not
+    // granted host access to. Say so plainly instead of failing silently.
+    return { error: 'This page does not allow extensions to run.' };
   },
 
   'license:status': async () => ({
@@ -650,15 +691,20 @@ const HANDLERS = {
   }),
 
   'stats:get': async (msg) => {
+    // Sample first so the popup shows this instant's count, not the last
+    // background sample's.
+    const page = msg.tabId != null ? (await sampleTab(msg.tabId)) || 0 : 0;
     await totalWrite; // settle any in-flight increment so the popup isn't stale
     const { blockedTotal = 0 } = await chrome.storage.local.get('blockedTotal');
-    const page = msg.tabId != null ? (await getTabState(msg.tabId)).counted : 0;
     return { page, total: blockedTotal };
   },
 
   'license:activate': async (msg) => {
     const result = await validateLicense(msg.key);
     await refreshAll(); // Pro scripts register/unregister immediately
+    // A new customer should get the server filters now, not at the next
+    // browser restart.
+    await refreshProFilters({ force: true }).catch(() => {});
     return { ...result, status: { ...(await licenseStatus()), available: PRO_ENABLED } };
   },
 
@@ -697,6 +743,7 @@ async function refreshAll() {
   await syncOverrideRules(ads, allowlist);
   await syncUserRules(state.pro);
   await syncContentScripts(ads, allowlist, state);
+  if (!state.pro) await clearProFilters();
 }
 
 // v2.x ("Data Saver") shipped image/video blocking. Users upgrading still have
@@ -720,6 +767,10 @@ async function migrateFromV2() {
 }
 
 async function startup() {
+  await enableNativeCount();
+  if (PRO_ENABLED && chrome.alarms) {
+    await chrome.alarms.create(PRO_FILTER_ALARM, { periodInMinutes: 6 * 60 }).catch(() => {});
+  }
   await revalidateIfStale();
   await refreshAll();
   await refreshProFilters();
@@ -728,7 +779,12 @@ async function startup() {
 // ----------------------------
 // 🚀 Lifecycle
 // ----------------------------
-chrome.runtime.onInstalled.addListener(async () => {
+// Where Chrome sends people who uninstall. A navigation target on our own site
+// (allowed by scripts/audit-package.mjs), not a request: nothing is sent from
+// the extension. It is the only way to learn why people leave.
+const UNINSTALL_URL = 'https://ad-interceptor.pages.dev/uninstall';
+
+chrome.runtime.onInstalled.addListener(async (details) => {
   await migrateFromV2();
 
   // First seen. Written only if absent, so an update never resets the clock
@@ -737,8 +793,16 @@ chrome.runtime.onInstalled.addListener(async () => {
   if (!installedAt) await chrome.storage.local.set({ installedAt: Date.now() });
 
   await startup();
+
+  // New extensions land inside Chrome's puzzle-piece menu, so without this a
+  // first-time user sees no sign that anything happened. First install only.
+  if (details.reason === 'install') {
+    chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') }).catch(() => {});
+  }
   console.log('🚀 Ad Interceptor ready');
 });
+
+chrome.runtime.setUninstallURL(UNINSTALL_URL).catch(() => {});
 
 chrome.runtime.onStartup.addListener(startup);
 

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "default_locale": "en",
   "name": "__MSG_extName__",
-  "version": "3.3",
+  "version": "3.4",
   "minimum_chrome_version": "121",
   "description": "__MSG_extDescription__",
   "permissions": [
@@ -10,7 +10,8 @@
     "declarativeNetRequestWithHostAccess",
     "storage",
     "scripting",
-    "declarativeNetRequestFeedback"
+    "declarativeNetRequestFeedback",
+    "alarms"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -73,7 +74,32 @@
         "id": "filters-6",
         "enabled": false,
         "path": "rules/filters-6.json"
+      },
+      {
+        "id": "pro-1",
+        "enabled": false,
+        "path": "rules/pro-1.json"
+      },
+      {
+        "id": "cookies-1",
+        "enabled": false,
+        "path": "rules/cookies-1.json"
+      },
+      {
+        "id": "annoy-1",
+        "enabled": false,
+        "path": "rules/annoy-1.json"
       }
     ]
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "blocked.html"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
 }

@@ -351,16 +351,24 @@ function initSiteToggle() {
     state.hasSite = true;
     siteHost.textContent = hostname;
 
+    // Pause the site, not just this exact host: "www." is dropped, so pausing
+    // www.example.com also covers example.com and m.example.com. The allow
+    // rule (||domain^) and the content-script excludes already include
+    // subdomains, so "is this paused?" has to be answered the same way.
+    const siteKey = hostname.replace(/^www\./, '');
+    const covering = (list) => list.filter((d) => hostname === d || hostname.endsWith('.' + d));
+
     chrome.storage.sync.get({ allowlist: [] }, ({ allowlist }) => {
-      state.paused = allowlist.includes(hostname);
+      state.paused = covering(allowlist).length > 0;
       render();
     });
 
     siteToggleBtn.onclick = () => {
       chrome.storage.sync.get({ allowlist: [] }, ({ allowlist }) => {
+        const cover = covering(allowlist);
         const next = state.paused
-          ? allowlist.filter((d) => d !== hostname)
-          : [...allowlist, hostname];
+          ? allowlist.filter((d) => !cover.includes(d))
+          : [...allowlist, siteKey];
 
         chrome.storage.sync.set({ allowlist: next }, () => {
           // Rules only apply to future requests, so the current page needs
