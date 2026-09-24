@@ -13,11 +13,11 @@
   "processorName": "PayPal",
   "//processorName": "The PAYMENT PROCESSOR, not a merchant of record. This distinction is legally load-bearing and changed on 2026-09-12: Paddle and Dodo were both merchants of record, meaning THEY were the legal seller and owed the tax. Both declined the account over ad blocking. Going direct means the seller of record is legalName — the pages must say so, and the tax obligation is ours, not the processor's.",
   "processorPrivacyUrl": "https://www.paypal.com/in/legalhub/privacy-full",
-  "paypalEnv": "sandbox",
+  "paypalEnv": "live",
   "//paypalEnv": "'sandbox' or 'live'. MUST match PAYPAL_ENV in backend/wrangler.jsonc — the site does not talk to PayPal itself, so this value cannot enforce anything on its own; it exists so the build can REFUSE to stage a live buy button while the Worker is still pointed at sandbox. Flipping it is a deliberate release step, not a default.",
   "//checkout": "There is no product id or checkout host here any more, and that is the point. The Get Pro button POSTs to apiBase + /v1/checkout/paypal; the Worker holds the plan id (PAYPAL_PLAN_ID) and the client secret, creates the subscription, and hands back a paypal.com approve URL to navigate to. Two things fall out of that: the site still loads NO third-party resource, which is what the privacy policy claims; and there is no static payment link that can drift out of step with the plan. Dodo's static-link fields were removed on 2026-09-18 — the account was declined and the fields were dead config.",
   "apiBase": "https://ad-interceptor-api.ad-interceptor-api.workers.dev",
   "//apiBase": "Licence API origin, same value as config.js API_BASE. The success panel calls it to fetch the key by transaction id. Empty = checkout still works but the key must be issued by hand.",
-  "salesEnabled": false,
+  "salesEnabled": true,
   "//salesEnabled": "Master switch for the buy button, independent of paypalEnv. Keep FALSE until a PRO_ENABLED extension build is live in the Chrome Web Store. Selling before then hands buyers a licence key the published extension cannot activate: they pay and get nothing. The old gate keyed off sandbox mode, which silently stopped protecting anything the moment the config went to production."
 }
