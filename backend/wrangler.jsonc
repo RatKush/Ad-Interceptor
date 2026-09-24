@@ -84,7 +84,13 @@
     // Live since 2026-09-22: product PROD-1UG87055HJ030903X, webhook
     // 2F850051PB718073T. Sandbox (kept in wrangler.local.jsonc):
     // PROD-1JT079686J710035V / P-71474011SD040523MNKWEWZI.
-    "PAYPAL_PLAN_ID": "P-3GL294396M386434TNKZMJUY"
+    "PAYPAL_PLAN_ID": "P-3GL294396M386434TNKZMJUY",
+
+    // One-time Pro (since 2026-09-24): what /v1/checkout/paypal-order charges
+    // and how long it lasts. MUST match priceUSD in
+    // store-listing/web/seller.json — scripts/build-site.mjs checks.
+    "PRO_PRICE_USD": "14.99",
+    "PRO_TERM_DAYS": 365
   },
 
   "observability": {

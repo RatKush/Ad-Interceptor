@@ -31,7 +31,14 @@ const RECHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 // backend had an outage. After this, entitlement fails closed.
 const OFFLINE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 
-const EMPTY = { key: null, plan: 'free', expiresAt: null, lastCheck: 0, lastGoodCheck: 0 };
+// Pro is one payment per 12 months (since 3.4). In the last 30 days, and
+// after it ends, the popup offers Renew — and the licence is re-checked far
+// more often, so a renewal paid on the website shows up as soon as the popup
+// is opened rather than a day later.
+const RENEW_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+const RENEWING_RECHECK_MS = 30 * 1000;
+
+const EMPTY = { key: null, plan: 'free', expiresAt: null, autoRenews: false, lastCheck: 0, lastGoodCheck: 0 };
 
 /**
  * A stable per-install identifier, created on first use.
@@ -122,6 +129,16 @@ export async function validateLicense(key) {
     const now = Date.now();
 
     if (!data.valid) {
+      // EXPIRED is kept, not wiped: the key is what Renew extends, and the
+      // next check turns Pro back on by itself once the renewal is paid.
+      // Every other refusal (revoked, unknown, device limit) clears it.
+      if (data.expiresAt && data.expiresAt <= now) {
+        await writeLicense({
+          key: trimmed, plan: 'pro', expiresAt: data.expiresAt, autoRenews: false,
+          lastCheck: now, lastGoodCheck: now
+        });
+        return { ok: true, plan: 'free', error: data.reason || 'This licence has expired.' };
+      }
       await writeLicense({ ...EMPTY, lastCheck: now });
       // The server's reason is far more useful than "not valid" — "already in
       // use on 3 devices" and "expired" need different actions from the user.
@@ -132,6 +149,9 @@ export async function validateLicense(key) {
       key: trimmed,
       plan: data.plan === 'pro' ? 'pro' : 'free',
       expiresAt: data.expiresAt ?? null,
+      // Only licences bought as the old yearly subscription renew by
+      // themselves; they must never be offered a second, manual renewal.
+      autoRenews: data.autoRenews === true,
       lastCheck: now,
       lastGoodCheck: now
     });
@@ -144,12 +164,21 @@ export async function validateLicense(key) {
   }
 }
 
-/** Re-check in the background if the stored result has gone stale. */
-export async function revalidateIfStale() {
+/**
+ * Re-check in the background if the stored result has gone stale.
+ * `eager` (the popup opening) shortens the wait to minutes when the licence
+ * is near or past its end, which is exactly when a renewal may have just been
+ * paid for. Returns true when a check actually ran.
+ */
+export async function revalidateIfStale({ eager = false } = {}) {
   const license = await readLicense();
-  if (!license.key) return;
-  if (Date.now() - license.lastCheck < RECHECK_INTERVAL_MS) return;
+  if (!license.key) return false;
+  const now = Date.now();
+  const nearEnd = !!license.expiresAt && license.expiresAt - now < RENEW_WINDOW_MS;
+  const interval = eager && nearEnd ? RENEWING_RECHECK_MS : RECHECK_INTERVAL_MS;
+  if (now - license.lastCheck < interval) return false;
   await validateLicense(license.key);
+  return true;
 }
 
 export async function clearLicense() {
@@ -159,11 +188,18 @@ export async function clearLicense() {
 /** Public view of entitlement state, for the popup. */
 export async function licenseStatus() {
   const license = await readLicense();
+  const now = Date.now();
+  const hasKey = !!license.key;
+  const expired = hasKey && !!license.expiresAt && now > license.expiresAt;
+  const nearEnd = hasKey && !!license.expiresAt && license.expiresAt - now < RENEW_WINDOW_MS;
   return {
     pro: await isPro(),
     plan: license.plan,
-    hasKey: !!license.key,
-    expiresAt: license.expiresAt
+    hasKey,
+    expiresAt: license.expiresAt,
+    expired,
+    // The key rides along only when the popup needs it for a Renew link.
+    renewKey: nearEnd && !license.autoRenews ? license.key : null
   };
 }
 

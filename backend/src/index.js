@@ -2,7 +2,9 @@
 //
 //   POST /v1/license/validate   { key, version, installId } -> { valid, plan, expiresAt, reason? }
 //   GET  /v1/filters/latest     Authorization: Bearer <key>  -> { rules: [...], builtAt }
-//   POST /v1/checkout/paypal    { origin } -> { approveUrl }   (starts a checkout)
+//   POST /v1/checkout/paypal-order         { origin, renewKey? } -> { approveUrl }  (one-time checkout)
+//   POST /v1/checkout/paypal-order/capture { orderId } -> { key, expiresAt, renewed }
+//   POST /v1/checkout/paypal    { origin } -> { approveUrl }   (legacy subscription checkout)
 //   POST /v1/paypal/webhook     PayPal notifications
 //   POST /v1/dodo/webhook       Dodo Payments notifications
 //   POST /v1/feedback           { reason, comment?, version?, id? } -> { ok, id }  (uninstall page)
@@ -146,7 +148,7 @@ async function evaluateKey(env, rawKey, installId, version) {
   if (!key) return { valid: false, plan: 'free', expiresAt: null, reason: "That doesn't look like a licence key." };
 
   const row = await env.DB.prepare(
-    'SELECT key, plan, status, expires_at, activation_limit FROM licenses WHERE key = ?'
+    'SELECT key, plan, status, expires_at, activation_limit, provider_subscription_id FROM licenses WHERE key = ?'
   ).bind(key).first();
 
   if (!row) {
@@ -193,7 +195,14 @@ async function evaluateKey(env, rawKey, installId, version) {
     }
   }
 
-  return { valid: true, plan: row.plan === 'pro' ? 'pro' : 'free', expiresAt: row.expires_at ?? null };
+  return {
+    valid: true,
+    plan: row.plan === 'pro' ? 'pro' : 'free',
+    expiresAt: row.expires_at ?? null,
+    // Only a licence bought as the old yearly subscription renews by itself.
+    // The extension uses this to never offer those a second, manual renewal.
+    autoRenews: !!row.provider_subscription_id && row.status === 'active'
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -322,6 +331,123 @@ async function issueKeyFor(env, subject, provider) {
   }
 
   return key;
+}
+
+// ---------------------------------------------------------------------------
+// One-time orders (PayPal Orders API)
+// ---------------------------------------------------------------------------
+// Pro is one payment for 12 months (see the note above createOrder in
+// paypal.js for why). The money moves when the buyer's browser returns from
+// PayPal and asks /v1/checkout/paypal-order/capture to capture it; that call
+// is also what grants the licence, so the buyer sees their key at once and
+// no webhook has to race the page.
+
+/** What the page is shown for a granted order. */
+async function licenceView(env, key, kind) {
+  const row = await env.DB.prepare('SELECT key, expires_at FROM licenses WHERE key = ?').bind(key).first();
+  return row ? { key: row.key, expiresAt: row.expires_at ?? null, renewed: kind === 'renew' } : null;
+}
+
+/**
+ * Turn a captured payment into a licence: a new 12-month key, or 12 more
+ * months on the key the buyer came to renew.
+ *
+ * Exactly once per order. The licence change and the orders row go in ONE
+ * D1 batch (a transaction), and the licence statement only applies while no
+ * orders row exists — so a reloaded return page, two open tabs or a retried
+ * request all land on the same result instead of granting twice.
+ *
+ * Returns null when what was paid is not what Pro costs.
+ */
+async function grantOrder(env, paid) {
+  const { price, currency, termMs } = paypal.orderTerms(env);
+  const now = Date.now();
+
+  const prior = await env.DB.prepare('SELECT license_key, kind FROM orders WHERE order_id = ?')
+    .bind(paid.orderId).first();
+  if (prior) return licenceView(env, prior.license_key, prior.kind);
+
+  if (paid.amount !== price || paid.currency !== currency) {
+    console.log(`order ${paid.orderId}: paid ${paid.amount} ${paid.currency}, expected ${price} ${currency}`);
+    return null;
+  }
+
+  // A renewal names its key in custom_id. If that key has since been revoked
+  // or never existed, the buyer still paid — give them a fresh key rather
+  // than extending nothing.
+  let renewKey = null;
+  if (String(paid.custom ?? '').startsWith('renew:')) {
+    const k = normalizeKey(String(paid.custom).slice(6));
+    const row = k && await env.DB.prepare(
+      "SELECT key FROM licenses WHERE key = ? AND status != 'revoked'"
+    ).bind(k).first();
+    renewKey = row?.key ?? null;
+  }
+
+  const recordOrder = (key, kind) => env.DB.prepare(
+    `INSERT INTO orders (order_id, license_key, kind, capture_id, amount, currency,
+                         payer_email, payer_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(order_id) DO NOTHING`
+  ).bind(paid.orderId, key, kind, paid.captureId, paid.amount, paid.currency,
+    paid.email, paid.payerId, now);
+
+  if (renewKey) {
+    // From today if it has already lapsed, from the current end otherwise:
+    // renewing early never costs the buyer the days they had left.
+    await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE licenses
+            SET expires_at = MAX(COALESCE(expires_at, 0), ?) + ?, status = 'active', updated_at = ?
+          WHERE key = ? AND NOT EXISTS (SELECT 1 FROM orders WHERE order_id = ?)`
+      ).bind(now, termMs, now, renewKey, paid.orderId),
+      recordOrder(renewKey, 'renew')
+    ]);
+  } else {
+    const key = generateKey();
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO licenses
+           (key, plan, status, expires_at, activation_limit, email, provider,
+            provider_customer_id, provider_payment_id, created_at, updated_at)
+         SELECT ?, 'pro', 'active', ?, 3, ?, 'paypal', ?, ?, ?, ?
+          WHERE NOT EXISTS (SELECT 1 FROM orders WHERE order_id = ?)`
+      ).bind(key, now + termMs, paid.email, paid.payerId, paid.orderId, now, now, paid.orderId),
+      recordOrder(key, 'new')
+    ]);
+  }
+
+  // Whoever won the transaction, this row is the truth.
+  const won = await env.DB.prepare('SELECT license_key, kind FROM orders WHERE order_id = ?')
+    .bind(paid.orderId).first();
+  return won ? licenceView(env, won.license_key, won.kind) : null;
+}
+
+/**
+ * Money for a one-time order came back (refund, reversal, chargeback).
+ * A new licence is revoked; a renewal only loses the 12 months it added.
+ * Applied once: the licence change is conditioned on the order not already
+ * being marked reversed, in the same transaction that marks it.
+ */
+async function reverseOrder(env, captureId) {
+  const order = await env.DB.prepare(
+    "SELECT order_id, license_key, kind FROM orders WHERE capture_id = ? AND status != 'reversed'"
+  ).bind(captureId).first();
+  if (!order) return false;
+
+  const now = Date.now();
+  const stillLive = "AND EXISTS (SELECT 1 FROM orders WHERE order_id = ? AND status != 'reversed')";
+  const licence = order.kind === 'renew'
+    ? env.DB.prepare(`UPDATE licenses SET expires_at = expires_at - ?, updated_at = ? WHERE key = ? ${stillLive}`)
+      .bind(paypal.orderTerms(env).termMs, now, order.license_key, order.order_id)
+    : env.DB.prepare(`UPDATE licenses SET status = 'revoked', updated_at = ? WHERE key = ? ${stillLive}`)
+      .bind(now, order.license_key, order.order_id);
+
+  await env.DB.batch([
+    licence,
+    env.DB.prepare("UPDATE orders SET status = 'reversed' WHERE order_id = ?").bind(order.order_id)
+  ]);
+  console.log(`reversed order ${order.order_id} (${order.kind}) for capture ${captureId}`);
+  return true;
 }
 
 async function handleWebhook(request, env, ctx, adapter) {
@@ -463,6 +589,15 @@ async function handleWebhook(request, env, ctx, adapter) {
   }
   // Anything else is recorded below and acknowledged. Returning an error would
   // make Dodo retry something we will never act on.
+
+  // One-time orders. Separate from the chain above because a dispute can be
+  // about a subscription (handled there) or a one-time capture (handled here),
+  // and the two never overlap: an order's capture id is in no subscription row.
+  if (adapter.module.ORDER_REVERSAL_EVENTS?.has(type) || adapter.module.isDispute(type)) {
+    for (const captureId of adapter.module.captureIdsOf?.(event) ?? []) {
+      await reverseOrder(env, captureId);
+    }
+  }
 
   // The customers table is load-bearing again under PayPal.
   //
@@ -637,6 +772,17 @@ export default {
               WHERE provider_subscription_id = ? AND status != 'revoked'`
           ).bind(lookup.id).first();
 
+        // A one-time order id: the orders table knows which key it bought or
+        // renewed, including renewals, whose licence row carries the ORIGINAL
+        // order id. This is what makes the receipt's recover link work.
+        if (!row && lookup.by === 'payment') {
+          const viaOrder = await env.DB.prepare(
+            `SELECT l.key, l.expires_at FROM orders o JOIN licenses l ON l.key = o.license_key
+              WHERE o.order_id = ? AND o.status != 'reversed' AND l.status != 'revoked'`
+          ).bind(lookup.id).first();
+          if (viaOrder) return json({ ready: true, key: viaOrder.key, expiresAt: viaOrder.expires_at ?? null });
+        }
+
         // 404 here is usually "the webhook has not landed yet" rather than
         // "no such purchase" — the two are indistinguishable from here, so say
         // so and let the caller decide how long to keep asking.
@@ -706,6 +852,87 @@ export default {
           console.log(`checkout failed: ${err.message}`);
           return json({ error: 'checkout unavailable' }, 503);
         }
+      }
+
+      // --- start a one-time PayPal checkout -------------------------------
+      // What the pricing page's Get Pro and Renew buttons call. Creating an
+      // order charges nobody; the capture below is where money moves.
+      if (path === '/v1/checkout/paypal-order' && request.method === 'POST') {
+        if (env.VALIDATE_LIMITER) {
+          const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+          const { success } = await env.VALIDATE_LIMITER.limit({ key: `checkout:${ip}` });
+          if (!success) return json({ error: 'rate limited' }, 429, { 'Retry-After': '60' });
+        }
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'malformed JSON' }, 400); }
+        const origin = String(body?.origin ?? '');
+        if (!origin) return json({ error: 'origin is required' }, 400);
+
+        // Checked BEFORE the buyer pays: renewing a key that does not exist
+        // would take their money for nothing.
+        let renewKey = null;
+        if (body?.renewKey) {
+          renewKey = normalizeKey(body.renewKey);
+          const row = renewKey && await env.DB.prepare(
+            "SELECT key FROM licenses WHERE key = ? AND status != 'revoked'"
+          ).bind(renewKey).first();
+          if (!row) return json({ error: 'unknown key' }, 400);
+        }
+
+        try {
+          const { approveUrl, orderId } = await paypal.createOrder(env, origin, renewKey);
+          console.log(`order started: ${orderId}${renewKey ? ' (renewal)' : ''}`);
+          return json({ approveUrl });
+        } catch (err) {
+          console.log(`order checkout failed: ${err.message}`);
+          return json({ error: 'checkout unavailable' }, 503);
+        }
+      }
+
+      // --- capture a one-time order and hand over the licence -------------
+      // Called by the pricing page when PayPal returns the buyer with
+      // ?token=<order id>. Idempotent end to end (see grantOrder).
+      if (path === '/v1/checkout/paypal-order/capture' && request.method === 'POST') {
+        if (env.VALIDATE_LIMITER) {
+          const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+          const { success } = await env.VALIDATE_LIMITER.limit({ key: `capture:${ip}` });
+          if (!success) return json({ error: 'rate limited' }, 429, { 'Retry-After': '60' });
+        }
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'malformed JSON' }, 400); }
+        const orderId = String(body?.orderId ?? '');
+        if (!/^[A-Za-z0-9]{8,40}$/.test(orderId)) return json({ error: 'malformed order id' }, 400);
+
+        const paid = await paypal.captureOrder(env, orderId);
+        if (!paid.completed) {
+          // Declined card, abandoned approval, or PayPal still holding it for
+          // review. The page tells the buyer nothing was charged by us.
+          return json({ error: 'payment not completed', reason: paid.reason ?? null }, 402);
+        }
+        const granted = await grantOrder(env, paid);
+        if (!granted) return json({ error: 'amount mismatch' }, 409);
+
+        // Email the key for a NEW licence once sending is configured (see
+        // mail.js); a renewal keeps the key the buyer already has.
+        if (!granted.renewed && paid.email) {
+          ctx.waitUntil((async () => {
+            try {
+              const row = await env.DB.prepare(
+                `SELECT key, email, activation_limit, expires_at FROM licenses
+                  WHERE key = ? AND key_sent_at IS NULL AND email IS NOT NULL`
+              ).bind(granted.key).first();
+              if (!row) return;
+              const result = await sendLicenceKey(env, {
+                key: row.key, email: row.email,
+                deviceLimit: row.activation_limit, expiresAt: row.expires_at
+              });
+              console.log(`key delivery for ${row.key}: ${result}`);
+            } catch (e) {
+              console.log(`key delivery threw: ${String(e).slice(0, 200)}`);
+            }
+          })());
+        }
+        return json({ ok: true, ...granted });
       }
 
       // --- PayPal ---------------------------------------------------------

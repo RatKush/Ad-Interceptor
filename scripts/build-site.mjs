@@ -81,6 +81,23 @@ if (missing.length) {
 // There is less to check than there used to be: the plan id and the client
 // secret live in the Worker, so the site cannot hold a stale copy of either.
 // What it CAN still get wrong is selling before anything is ready.
+// The one-time checkout charges what the WORKER is configured with
+// (PRO_PRICE_USD in backend/wrangler.jsonc), not what this page says. If the
+// two disagree, the page advertises one price and PayPal charges another.
+{
+  const worker = await readFile(path.join(ROOT, 'backend', 'wrangler.jsonc'), 'utf8');
+  const m = worker.match(/"PRO_PRICE_USD":\s*"([^"]+)"/);
+  if (!m) {
+    console.error('Refusing to build: backend/wrangler.jsonc has no PRO_PRICE_USD.');
+    process.exit(1);
+  }
+  if (m[1] !== seller.priceUSD) {
+    console.error(`Refusing to build: price drift — seller.json priceUSD is ${seller.priceUSD},`);
+    console.error(`the Worker charges PRO_PRICE_USD ${m[1]}. Change both, then redeploy the Worker.`);
+    process.exit(1);
+  }
+}
+
 {
   const env = seller.paypalEnv;
   if (env !== 'sandbox' && env !== 'live') {
@@ -94,7 +111,7 @@ if (missing.length) {
     // checkout, it is no checkout at all.
     if (!seller.apiBase) {
       console.error('Refusing to build: salesEnabled is true but apiBase is empty.');
-      console.error('The Get Pro button POSTs to apiBase + /v1/checkout/paypal; with no');
+      console.error('The Get Pro button POSTs to apiBase + /v1/checkout/paypal-order; with no');
       console.error('apiBase there is nothing to post to and the button cannot work.');
       process.exit(1);
     }
@@ -227,8 +244,11 @@ for (const required of ['index.html', '404.html', 'pricing.html', 'terms.html', 
   // The buy button is a POST to our own Worker now, not a static link. If that
   // call goes missing the button renders and does nothing, which is worse than
   // a button that admits it is unconfigured.
-  if (!pricing.includes("'/v1/checkout/paypal'")) {
-    problems.push('pricing.html: the /v1/checkout/paypal call is missing — the buy button would do nothing');
+  if (!pricing.includes("'/v1/checkout/paypal-order'")) {
+    problems.push('pricing.html: the /v1/checkout/paypal-order call is missing — the buy button would do nothing');
+  }
+  if (!pricing.includes("'/v1/checkout/paypal-order/capture'")) {
+    problems.push('pricing.html: the capture call is missing — a buyer returning from PayPal would never be charged or get a key');
   }
 
   // Asserting the negative, because this is the claim the product is sold on
@@ -269,7 +289,7 @@ console.log(`  seller       : ${seller.legalName} (${seller.jurisdiction})`);
 console.log(`  Pro price    : $${seller.priceUSD}/yr, ${seller.deviceLimit} devices`);
 console.log(`  refund window: ${seller.refundDays} days`);
 console.log(`  rule counts  : ${group(counts.freeNetwork)} network, ${group(counts.cosmeticGeneric)} cosmetic (built ${counts.builtAt})`);
-console.log(`  checkout     : ${tokens.checkoutEnabled ? `${seller.paypalEnv} via ${seller.apiBase}/v1/checkout/paypal` : 'NOT configured'}`);
+console.log(`  checkout     : ${tokens.checkoutEnabled ? `${seller.paypalEnv} one-time via ${seller.apiBase}/v1/checkout/paypal-order` : 'NOT configured'}`);
 console.log(`  seller of rec: ${seller.legalName} — payments via ${seller.processorName}`);
 console.log(`  licence API  : ${seller.apiBase || 'NOT set — keys must be issued by hand'}`);
 

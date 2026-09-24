@@ -28,7 +28,7 @@ export async function validateLicense() {
 
 export async function clearLicense() {}
 
-export async function revalidateIfStale() {}
+export async function revalidateIfStale() { return false; }
 
 export async function fetchProFilters() {
   return null;

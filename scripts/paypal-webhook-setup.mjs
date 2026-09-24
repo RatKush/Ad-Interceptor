@@ -63,6 +63,10 @@ const EVENTS = [
   'PAYMENT.SALE.REVERSED',
   // Plan change / un-suspend.
   'BILLING.SUBSCRIPTION.UPDATED',
+  // One-time orders (since 2026-09-24): money returned revokes the licence,
+  // or takes back the 12 months a renewal added. See reverseOrder.
+  'PAYMENT.CAPTURE.REFUNDED',
+  'PAYMENT.CAPTURE.REVERSED',
   // Chargebacks. PayPal namespaces these under CUSTOMER.DISPUTE, not DISPUTE.
   'CUSTOMER.DISPUTE.CREATED',
   'CUSTOMER.DISPUTE.UPDATED',

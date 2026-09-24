@@ -113,3 +113,20 @@ CREATE TABLE IF NOT EXISTS feedback (
   updated_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback (created_at);
+
+-- One-time Pro payments. One row per captured PayPal order; see
+-- migrations/006-one-time-orders.sql.
+CREATE TABLE IF NOT EXISTS orders (
+  order_id     TEXT PRIMARY KEY,        -- PayPal order id; one row per payment
+  license_key  TEXT NOT NULL,           -- the key this payment created or extended
+  kind         TEXT NOT NULL,           -- 'new' | 'renew'
+  capture_id   TEXT,                    -- what refunds and disputes refer to
+  amount       TEXT,
+  currency     TEXT,
+  payer_email  TEXT,
+  payer_id     TEXT,
+  status       TEXT NOT NULL DEFAULT 'completed',  -- 'completed' | 'reversed'
+  created_at   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_orders_capture ON orders (capture_id);
+CREATE INDEX IF NOT EXISTS idx_orders_key     ON orders (license_key);

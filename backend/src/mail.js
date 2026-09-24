@@ -36,7 +36,7 @@ function textBody({ key, deviceLimit, expiresAt, support, seller, processor }) {
     '',
     `The key works on up to ${deviceLimit} devices at once. A device you stop`,
     'using is released automatically after 60 days.',
-    until ? `\nYour subscription renews on ${until}.` : '',
+    until ? `\nPro runs until ${until}. It does not renew automatically — the extension\nreminds you before it ends.` : '',
     '',
     'Keep this email — it is the only copy of your key we send.',
     '',
@@ -72,7 +72,7 @@ function htmlBody({ key, deviceLimit, expiresAt, support, seller, processor }) {
   <p style="margin:0 0 6px;font-size:13.5px;color:#6b6775;">
     Works on up to ${deviceLimit} devices at once. A device you stop using is released automatically after 60 days.
   </p>
-  ${until ? `<p style="margin:0 0 6px;font-size:13.5px;color:#6b6775;">Your subscription renews on ${until}.</p>` : ''}
+  ${until ? `<p style="margin:0 0 6px;font-size:13.5px;color:#6b6775;">Pro runs until ${until}. It does not renew automatically &mdash; the extension reminds you before it ends.</p>` : ''}
   <p style="margin:16px 0 0;font-size:13.5px;color:#6b6775;">
     Keep this email — it is the only copy of your key we send.
     Need it again? Email <a href="mailto:${support}" style="color:#6d28d9;">${support}</a>.

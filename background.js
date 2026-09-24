@@ -51,7 +51,7 @@ const validateLicense = async (key) => (PRO_ENABLED
   : { ok: false, error: 'Pro is not available in this build.' });
 
 const clearLicense = async () => { if (PRO_ENABLED) await licenseImpl.clearLicense(); };
-const revalidateIfStale = async () => { if (PRO_ENABLED) await licenseImpl.revalidateIfStale(); };
+const revalidateIfStale = async (opts) => (PRO_ENABLED ? licenseImpl.revalidateIfStale(opts) : false);
 const fetchProFilters = async () => (PRO_ENABLED ? licenseImpl.fetchProFilters() : null);
 
 // ---- Dynamic rule ID space ------------------------------------------------
@@ -278,6 +278,9 @@ const PRO_FILTER_ALARM = 'pro-filters';
 if (PRO_ENABLED && chrome.alarms) {
   chrome.alarms.onAlarm.addListener(async (alarm) => {
     if (alarm.name !== PRO_FILTER_ALARM) return;
+    // The daily server check lives here too, not only at browser start: a
+    // renewal paid on the website, or a refund, should not wait for a restart.
+    await revalidateIfStale().catch(() => {});
     // A licence can lapse just by time passing (expiry, 7-day offline grace)
     // with no storage write to trigger a reconcile, so re-check it here too.
     if (await isPro()) await refreshProFilters().catch(() => {});
@@ -684,11 +687,22 @@ const HANDLERS = {
     return { error: 'This page does not allow extensions to run.' };
   },
 
-  'license:status': async () => ({
-    ...(await licenseStatus()),
-    available: PRO_ENABLED,
-    teaser: PRO_TEASER && !PRO_ENABLED
-  }),
+  'license:status': async () => {
+    // Opening the popup near or after the end of a licence is when a renewal
+    // may just have been paid. Check (briefly — the popup is waiting) and,
+    // if Pro came back, switch its rules on before answering.
+    const before = await isPro();
+    const checked = await Promise.race([
+      revalidateIfStale({ eager: true }).catch(() => false),
+      new Promise((r) => setTimeout(() => r(false), 2500))
+    ]);
+    if (checked && (await isPro()) !== before) await refreshAll().catch(() => {});
+    return {
+      ...(await licenseStatus()),
+      available: PRO_ENABLED,
+      teaser: PRO_TEASER && !PRO_ENABLED
+    };
+  },
 
   'stats:get': async (msg) => {
     // Sample first so the popup shows this instant's count, not the last

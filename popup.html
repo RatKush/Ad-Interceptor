@@ -496,6 +496,8 @@
   .pro-buy-btn { width: 100%; padding: 10px 13px; font-size: 13px; }
   .pro-buy-sub { margin: 6px 0 0; font-size: 11px; color: var(--text-faint); }
   .pro-key-label { margin: 14px 0 0; font-size: 11.5px; color: var(--text-muted); }
+  .pro-renew { margin-top: 12px; }
+  .pro-renew-text { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--text); }
   .pro-key-label + .pro-form { margin-top: 7px; }
 
   /* ---------- Pro teaser ---------- */
@@ -804,7 +806,15 @@
          build if they drift. -->
     <div class="pro-buy" id="proBuy">
       <button class="btn btn-primary pro-buy-btn" id="buyProBtn" type="button">Get Pro — $14.99/year</button>
-      <p class="pro-buy-sub">Up to 3 devices. Cancel any time.</p>
+      <p class="pro-buy-sub">One payment for 12 months, up to 3 devices. No auto-renewal.</p>
+    </div>
+    <!-- Pro is one payment per 12 months, so nothing renews by itself. In the
+         last 30 days, and after it ends, this replaces the reminder the
+         subscription used to be. Renewing opens /pricing#renew=<key>, which
+         adds 12 months to this same key. -->
+    <div class="pro-renew" id="proRenew" hidden>
+      <p class="pro-renew-text" id="proRenewText"></p>
+      <button class="btn btn-primary pro-buy-btn" id="renewProBtn" type="button">Renew for 12 months — $14.99</button>
     </div>
     <p class="pro-key-label" id="proKeyLabel">Already purchased? Enter your licence key below.</p>
     <div class="pro-form" id="proForm">

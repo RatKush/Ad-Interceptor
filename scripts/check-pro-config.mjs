@@ -88,8 +88,12 @@ const problems = [];
   if (!btn || !btn[1].includes(`$${seller.priceUSD}/year`)) {
     problems.push(`popup.html "Get Pro" button does not quote $${seller.priceUSD}/year (seller.json priceUSD).`);
   }
-  if (!sub || !sub[1].includes(`Up to ${seller.deviceLimit} devices`)) {
-    problems.push(`popup.html Get Pro line does not say "Up to ${seller.deviceLimit} devices" (seller.json deviceLimit).`);
+  if (!sub || !sub[1].toLowerCase().includes(`up to ${seller.deviceLimit} devices`)) {
+    problems.push(`popup.html Get Pro line does not say "up to ${seller.deviceLimit} devices" (seller.json deviceLimit).`);
+  }
+  const renew = popup.match(/id="renewProBtn"[^>]*>([^<]*)</);
+  if (!renew || !renew[1].includes(`$${seller.priceUSD}`)) {
+    problems.push(`popup.html Renew button does not quote $${seller.priceUSD} (seller.json priceUSD).`);
   }
 }
 

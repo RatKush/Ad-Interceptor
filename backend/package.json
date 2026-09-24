@@ -12,7 +12,8 @@
     "schema:local": "wrangler d1 execute ad-interceptor-licenses --local --config wrangler.local.jsonc --file=schema.sql",
     "tail": "wrangler tail",
     "dev:local": "wrangler dev --config wrangler.local.jsonc --port 8787",
-    "test:local": "node test/e2e.mjs"
+    "test:local": "node test/e2e.mjs",
+    "test:orders": "node test/order-e2e.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

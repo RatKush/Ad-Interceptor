@@ -198,6 +198,18 @@ function initPro() {
   teaserBtn.addEventListener('click', openPricing);
   document.getElementById('buyProBtn').addEventListener('click', openPricing);
 
+  // Set by renderPro while a renewal is due; the fragment keeps the key out
+  // of any server log on the way to the pricing page.
+  let renewKey = null;
+  document.getElementById('renewProBtn').addEventListener('click', () => {
+    if (!renewKey) return;
+    chrome.tabs.create({ url: `${PRICING_URL}#renew=${encodeURIComponent(renewKey)}` });
+    window.close();
+  });
+
+  const fmtDate = (ms) => new Date(ms).toLocaleDateString(undefined,
+    { day: 'numeric', month: 'short', year: 'numeric' });
+
   // The summary line counts the list rather than hard-coding a number: the
   // free and Pro builds ship different feature sets, and a literal "7" would
   // go quietly wrong the next time a tier is added.
@@ -229,11 +241,20 @@ function initPro() {
     }
     teaserCard.hidden = true;
     const active = !!status?.pro;
+    const expired = !!status?.expired;
+    renewKey = status?.renewKey || null;
     // The way to buy, and the line pointing at the key box, only mean
-    // something before a licence is active.
-    document.getElementById('proBuy').hidden = active;
+    // something before a licence is active. A lapsed licence is renewed
+    // rather than bought again, so Renew takes Get Pro's place.
+    document.getElementById('proBuy').hidden = active || !!renewKey;
     document.getElementById('proKeyLabel').hidden = active;
-    badge.textContent = active ? 'Active' : 'Inactive';
+    document.getElementById('proRenew').hidden = !renewKey;
+    if (renewKey && status.expiresAt) {
+      document.getElementById('proRenewText').textContent = expired
+        ? `Your Pro ended on ${fmtDate(status.expiresAt)}.`
+        : `Pro ends on ${fmtDate(status.expiresAt)}.`;
+    }
+    badge.textContent = active ? 'Active' : (expired ? 'Expired' : 'Inactive');
     badge.classList.toggle('active', active);
     form.hidden = active;
     removeBtn.hidden = !active;
@@ -247,7 +268,8 @@ function initPro() {
     // that is the moment the fold is feedback for.
     card.classList.toggle('is-active', active);
     const count = document.querySelectorAll('#proFeatures li').length;
-    summaryText.textContent = `All ${count} Pro features active`;
+    summaryText.textContent = `All ${count} Pro features active` +
+      (active && status.expiresAt ? ` · until ${fmtDate(status.expiresAt)}` : '');
     foldFeatures(active, renderedActive === false && active);
     renderedActive = active;
   }

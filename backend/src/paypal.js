@@ -22,8 +22,15 @@
 const LIVE_API = 'https://api-m.paypal.com';
 const SANDBOX_API = 'https://api-m.sandbox.paypal.com';
 
-export const apiBase = (env) =>
-  String(env.PAYPAL_ENV ?? '').toLowerCase() === 'live' ? LIVE_API : SANDBOX_API;
+const isLive = (env) => String(env.PAYPAL_ENV ?? '').toLowerCase() === 'live';
+
+// PAYPAL_API_BASE points a NON-live Worker at a stand-in PayPal, so the whole
+// checkout can be exercised locally against a mock (see test/order-e2e.mjs).
+// Ignored when PAYPAL_ENV is live: production can only ever talk to PayPal.
+export const apiBase = (env) => {
+  if (isLive(env)) return LIVE_API;
+  return env.PAYPAL_API_BASE || SANDBOX_API;
+};
 
 // ---- OAuth ----------------------------------------------------------------
 // Every PayPal API call needs a bearer token minted from the client id and
@@ -375,6 +382,167 @@ export async function createSubscription(env, returnOrigin) {
 
   return { approveUrl: approve.href, subscriptionId: body.id ?? null };
 }
+
+// ---- One-time checkout (Orders API) ---------------------------------------
+//
+// WHY THIS EXISTS ALONGSIDE createSubscription. PayPal offers guest checkout —
+// paying by card with no PayPal account — for one-time payments only. Its own
+// help page lists "REST automatic payments" among the products that never get
+// it, so the subscription checkout above always asks the buyer to log in.
+// Since 2026-09-24 Pro is sold as ONE payment for a 12-month licence, renewed
+// by paying again (the extension reminds the user before it ends).
+// createSubscription stays for anyone who subscribed before the switch.
+//
+// landing_page GUEST_CHECKOUT opens PayPal on the card form rather than the
+// login box. PayPal still decides per buyer from its risk checks, and the
+// merchant account needs "PayPal account optional" switched on.
+
+/** The price and term, from Worker config so the server never trusts the page. */
+export function orderTerms(env) {
+  const price = String(env.PRO_PRICE_USD ?? '').trim();
+  const days = Number(env.PRO_TERM_DAYS ?? 365);
+  if (!/^\d+\.\d{2}$/.test(price)) throw new Error('PRO_PRICE_USD not configured');
+  if (!Number.isFinite(days) || days < 1) throw new Error('PRO_TERM_DAYS invalid');
+  return { price, currency: 'USD', termMs: days * 24 * 60 * 60 * 1000 };
+}
+
+/**
+ * Create an order for one Pro licence and return the URL to send the buyer
+ * to. Nothing is charged here: the money moves only when captureOrder runs
+ * after the buyer approves.
+ *
+ * renewKey, when given, rides in custom_id so the capture knows which
+ * licence to extend. It is visible only in our own PayPal account.
+ */
+export async function createOrder(env, returnOrigin, renewKey = null) {
+  if (!isAllowedReturnOrigin(returnOrigin)) throw new Error('return origin is not allow-listed');
+  const { price, currency } = orderTerms(env);
+  const back = `${new URL(returnOrigin).origin}/pricing`;
+  const tok = await getAccessToken(env);
+
+  const res = await fetch(`${apiBase(env)}/v2/checkout/orders`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${tok}`,
+      'Content-Type': 'application/json',
+      'PayPal-Request-Id': crypto.randomUUID()
+    },
+    body: JSON.stringify({
+      intent: 'CAPTURE',
+      purchase_units: [{
+        reference_id: 'pro-12-months',
+        description: 'Ad Interceptor Pro — 12 months',
+        custom_id: renewKey ? `renew:${renewKey}` : 'new',
+        amount: { currency_code: currency, value: price }
+      }],
+      payment_source: {
+        paypal: {
+          experience_context: {
+            brand_name: 'Ad Interceptor',
+            landing_page: 'GUEST_CHECKOUT',
+            shipping_preference: 'NO_SHIPPING',
+            // The amount is final, so the buyer pays on PayPal's page instead
+            // of being sent back here to confirm.
+            user_action: 'PAY_NOW',
+            // PayPal appends ?token=<order id>&PayerID=... to the return.
+            return_url: back,
+            // Distinct from return_url for the same reason as the
+            // subscription checkout: backing out must never look like paying.
+            cancel_url: `${back}?checkout=cancelled`
+          }
+        }
+      }
+    })
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    console.log(`paypal: create order failed: HTTP ${res.status} ${text.slice(0, 300)}`);
+    throw new Error(`PayPal order create failed: HTTP ${res.status}`);
+  }
+  const body = await res.json();
+  // Orders v2 with payment_source names the link payer-action; older shapes
+  // call it approve. Accept either rather than break on a naming change.
+  const link = (body.links ?? []).find((l) => l.rel === 'payer-action' || l.rel === 'approve');
+  if (!link?.href) throw new Error('PayPal returned no approval link');
+  return { approveUrl: link.href, orderId: body.id ?? null };
+}
+
+/**
+ * Capture an approved order and report what was paid.
+ *
+ * Safe to call more than once for the same order: the PayPal-Request-Id is
+ * derived from the order id, so PayPal replays the first capture's answer,
+ * and an order an earlier call already captured (ORDER_ALREADY_CAPTURED) is
+ * read back instead.
+ *
+ * Returns { completed, orderId, captureId, amount, currency, custom, email,
+ * payerId } — completed is false for anything PayPal has not settled.
+ */
+export async function captureOrder(env, orderId) {
+  const tok = await getAccessToken(env);
+  const base = apiBase(env);
+  let res = await fetch(`${base}/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${tok}`,
+      'Content-Type': 'application/json',
+      'PayPal-Request-Id': `capture-${orderId}`
+    }
+  });
+
+  let body = await res.json().catch(() => ({}));
+  if (res.status === 422 && JSON.stringify(body).includes('ORDER_ALREADY_CAPTURED')) {
+    res = await fetch(`${base}/v2/checkout/orders/${encodeURIComponent(orderId)}`, {
+      headers: { Authorization: `Bearer ${tok}` }
+    });
+    body = await res.json().catch(() => ({}));
+  }
+  if (!res.ok) {
+    console.log(`paypal: capture ${orderId} failed: HTTP ${res.status} ${JSON.stringify(body).slice(0, 300)}`);
+    return { completed: false, orderId, reason: body?.details?.[0]?.issue ?? `HTTP ${res.status}` };
+  }
+
+  const unit = body.purchase_units?.[0] ?? {};
+  const capture = unit.payments?.captures?.[0] ?? {};
+  return {
+    completed: body.status === 'COMPLETED' && capture.status === 'COMPLETED',
+    orderId: body.id ?? orderId,
+    captureId: capture.id ?? null,
+    amount: capture.amount?.value ?? null,
+    currency: capture.amount?.currency_code ?? null,
+    custom: capture.custom_id ?? unit.custom_id ?? null,
+    email: body.payer?.email_address ?? body.payment_source?.paypal?.email_address ?? null,
+    payerId: body.payer?.payer_id ?? body.payment_source?.paypal?.account_id ?? null
+  };
+}
+
+/**
+ * The captures a refund, reversal or dispute is about.
+ *
+ * A PAYMENT.CAPTURE.REFUNDED resource is the REFUND, whose parent capture is
+ * only reachable through its rel=up link. A REVERSED resource can be the
+ * capture itself. A dispute lists the captures it contests.
+ */
+export function captureIdsOf(event) {
+  const r = event?.resource ?? {};
+  const ids = new Set();
+  for (const l of r.links ?? []) {
+    const m = l.rel === 'up' && String(l.href).match(/\/captures\/([^/?]+)/);
+    if (m) ids.add(m[1]);
+  }
+  if (String(event?.event_type) === 'PAYMENT.CAPTURE.REVERSED' && r.id && !ids.size) ids.add(r.id);
+  for (const t of r.disputed_transactions ?? []) {
+    if (t.seller_transaction_id) ids.add(t.seller_transaction_id);
+  }
+  return [...ids];
+}
+
+/** Money for a one-time order came back: revoke, or take back a renewal. */
+export const ORDER_REVERSAL_EVENTS = new Set([
+  'PAYMENT.CAPTURE.REFUNDED',
+  'PAYMENT.CAPTURE.REVERSED'
+]);
 
 // ---- Event sets -----------------------------------------------------------
 // Note the hyphen in RE-ACTIVATED. It is PayPal's spelling, not a typo, and

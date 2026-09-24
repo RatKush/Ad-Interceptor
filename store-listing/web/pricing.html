@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>Pricing — Ad Interceptor</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Ad Interceptor is free with the full {{ruleCount}}-rule filter set. Pro is ${{priceUSD}} per year for up to {{deviceLimit}} devices.">
+<meta name="description" content="Ad Interceptor is free with the full {{ruleCount}}-rule filter set. Pro is a single ${{priceUSD}} payment for 12 months on up to {{deviceLimit}} devices.">
 <link rel="stylesheet" href="/site.css">
 <style>
   /* Checkout-only styles. Kept on this page rather than in site.css because
@@ -25,7 +25,14 @@
   .buy:disabled { opacity: 0.55; cursor: default; }
   .buy:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
+  /* .plans sets display:grid, which beats the UA's [hidden] rule — without
+     this the plan cards and a live Get Pro button stayed on the receipt. */
+  .plans[hidden] { display: none; }
   .buy-note { font-size: 12px; color: var(--text-muted); margin: 8px 0 0; text-align: center; }
+  .renew-note {
+    font-size: 13px; margin: 16px 0 -6px; padding: 9px 12px; border-radius: 8px;
+    background: var(--accent-soft); color: var(--text);
+  }
   .plan-tax { font-size: 11.5px; color: var(--text-muted); margin: -8px 0 12px; }
 
   .keybox {
@@ -125,7 +132,7 @@
            before they confirm — the note below says so rather than letting
            the switch surprise them. -->
       <p class="plan-price" id="proPrice">${{priceUSD}}</p>
-      <p class="plan-per">per year, up to {{deviceLimit}} devices</p>
+      <p class="plan-per">for 12 months, up to {{deviceLimit}} devices</p>
       <p class="plan-tax" id="proTax" hidden></p>
       <ul>
         <li>Everything in Free</li>
@@ -139,14 +146,16 @@
         <li>Priority support &mdash; Pro mail is answered first</li>
       </ul>
 
+      <p class="renew-note" id="renewNote" hidden></p>
       <button class="buy" id="buyPro" type="button">Get Pro</button>
-      <p class="buy-note" id="buyNote">Billed yearly in US dollars. Cancel any time.</p>
+      <p class="buy-note" id="buyNote">One payment in US dollars, by card or PayPal. No automatic renewal.</p>
     </div>
   </div>
 
-  <!-- Shown after checkout completes. PayPal returns the buyer here with
-       ?subscription_id=..., and the page trades that id for the licence key
-       at the licence API. -->
+  <!-- Shown after checkout. PayPal returns the buyer here with ?token=<order
+       id>; the page asks the licence API to capture that payment, which
+       returns the key. (?subscription_id=... is the older subscription
+       checkout, still handled for anyone who bought that way.) -->
   <div class="keybox" id="keyBox" hidden>
     <h2 id="keyTitle">Payment received</h2>
     <p id="keyStatus">Issuing your licence key…</p>
@@ -175,8 +184,9 @@
   </div>
 
   <p class="note">
-    Pro is billed annually and renews until cancelled. You can cancel at any
-    time and keep access until the end of the period you have already paid for.
+    Pro is a single payment that covers 12 months. Nothing renews
+    automatically: the extension reminds you before Pro ends, and renewing
+    adds another 12 months to the same key.
   </p>
 
   <section>
@@ -203,8 +213,8 @@
           EasyList and EasyPrivacy change every day, but rules bundled inside
           an extension can only be refreshed by shipping a new version through
           the Chrome Web Store. Pro fetches a freshly built rule set directly,
-          so new rules apply the day they are published. This is what the
-          subscription funds.
+          so new rules apply the day they are published. This is what Pro
+          funds.
         </p>
       </div>
     </div>
@@ -364,10 +374,15 @@
     // the two live in different columns. Never guessed from the value's shape.
     var lookup = null;
     var fromPayPal = params.get('subscription_id');
+    // The one-time checkout returns ?token=<order id>&PayerID=... . The
+    // subscription checkout ALSO appends a token, so subscription_id wins.
+    var orderToken = fromPayPal ? null : params.get('token');
     var fromDodo = params.get('payment_id');
     var recovered = params.get('recover');
 
-    if (!cancelled && fromPayPal) {
+    if (!cancelled && orderToken) {
+      lookup = { id: orderToken, kind: 'order' };
+    } else if (!cancelled && fromPayPal) {
       lookup = { id: fromPayPal, kind: 'subscription' };
     } else if (recovered) {
       // k=p marks a recover link built from a payment id. Absent means
@@ -389,11 +404,26 @@
       if (plans) plans.hidden = true;
       keyBox.scrollIntoView({ block: 'start' });
 
-      collectKey(lookup, 0);
+      if (lookup.kind === 'order') captureOrder(lookup.id, 0);
+      else collectKey(lookup, 0);
 
       // A receipt view needs no checkout. Returning here also means the sales
       // gate below can never overwrite what we just put on screen.
       return;
+    }
+
+    // Renewal. The extension opens /pricing#renew=<key>: a fragment, so the
+    // key never reaches a server log on the way here. It is sent only to our
+    // own API when the buyer presses the button.
+    var renewKey = null;
+    var frag = new URLSearchParams(location.hash.slice(1)).get('renew');
+    if (frag && /^AI3-[0-9A-Z]{5}(-[0-9A-Z]{5}){3}$/.test(frag.trim().toUpperCase())) {
+      renewKey = frag.trim().toUpperCase();
+      var renewNote = document.getElementById('renewNote');
+      renewNote.textContent = 'Renewing the licence ending in ' + renewKey.slice(-5) +
+        '. This adds 12 months to it — no new key to enter.';
+      renewNote.hidden = false;
+      buy.textContent = 'Renew Pro — $' + '{{priceUSD}}';
     }
 
     // Sales are OFF until explicitly enabled, regardless of mode.
@@ -488,6 +518,73 @@
         });
     }
 
+    /**
+     * Take the payment for a one-time order and show what it bought.
+     *
+     * Safe to retry: the API captures each order once and returns the same
+     * answer to every later call, so a reload or a flaky connection cannot
+     * charge twice or grant twice.
+     */
+    function captureOrder(orderId, attempt) {
+      currentTxn = orderId;
+      currentKind = 'payment';
+      keyStatus.textContent = 'Completing your payment…';
+      fetch(API_BASE + '/v1/checkout/paypal-order/capture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: orderId })
+      })
+        .then(function (res) {
+          return res.json().then(function (body) { return { status: res.status, body: body }; });
+        })
+        .then(function (r) {
+          if (r.status === 200 && r.body.key) {
+            // Drop ?token= so a later reload is a plain receipt, not a capture.
+            try {
+              history.replaceState(null, '', location.pathname + '?recover=' +
+                encodeURIComponent(orderId) + '&k=p');
+            } catch (e) {}
+            var until = r.body.expiresAt ? new Date(r.body.expiresAt).toLocaleDateString(undefined,
+              { year: 'numeric', month: 'long', day: 'numeric' }) : null;
+            if (r.body.renewed) {
+              document.getElementById('keyTitle').textContent = 'Renewed — thank you';
+              keyStatus.textContent = (until ? 'Pro now runs until ' + until + '. ' : '') +
+                'The extension picks this up by itself; opening its popup refreshes it straight away.';
+              keyValue.textContent = r.body.key;
+              keyRow.hidden = false;
+              return;
+            }
+            keyStatus.textContent = until ? 'Pro runs until ' + until + '.' : 'Pro is active for 12 months.';
+            keyValue.textContent = r.body.key;
+            keyRow.hidden = false;
+            keyWarn.hidden = false;
+            keyActions.hidden = false;
+            keyHelp.hidden = false;
+            var url = location.origin + '/pricing?recover=' + encodeURIComponent(orderId) + '&k=p';
+            keyRecover.innerHTML = 'Lost it? Bookmark this page to fetch it again: ' +
+              '<a href="' + url + '">' + url + '</a>';
+            keyRecover.hidden = false;
+            return;
+          }
+          if (r.status === 402) {
+            document.getElementById('keyTitle').textContent = 'Payment not completed';
+            keyStatus.innerHTML = 'PayPal did not complete this payment, so nothing was charged. ' +
+              '<a href="/pricing">Try again</a>, or <a href="mailto:{{contactEmail}}">email us</a> if your bank shows a charge.';
+            return;
+          }
+          throw new Error('HTTP ' + r.status);
+        })
+        .catch(function () {
+          if (attempt < 5) {
+            setTimeout(function () { captureOrder(orderId, attempt + 1); }, 3000);
+            return;
+          }
+          keyStatus.innerHTML = 'We could not confirm this payment yet. Reload this page in a minute — ' +
+            'it is safe and will not charge you twice — or <a href="mailto:{{contactEmail}}">email us</a> ' +
+            'with order reference ' + orderId + '.';
+        });
+    }
+
     buy.addEventListener('click', function () {
       // Ask our own Worker to create the subscription, then navigate to the
       // paypal.com URL it hands back. Still NO third-party script on this
@@ -508,15 +605,25 @@
       buy.disabled = true;
       buy.textContent = 'Opening checkout…';
 
-      fetch(API_BASE + '/v1/checkout/paypal', {
+      fetch(API_BASE + '/v1/checkout/paypal-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ origin: location.origin })
+        body: JSON.stringify(renewKey ? { origin: location.origin, renewKey: renewKey } : { origin: location.origin })
       })
         .then(function (res) {
           return res.json().then(function (body) { return { status: res.status, body: body }; });
         })
         .then(function (r) {
+          if (r.status === 400 && r.body.error === 'unknown key') {
+            // The key in the renewal link is not one we issued (or it was
+            // revoked). Offer a normal purchase rather than a dead end.
+            renewKey = null;
+            document.getElementById('renewNote').textContent =
+              'We could not find that licence key, so this will buy a new 12-month licence instead.';
+            buy.disabled = false;
+            buy.textContent = 'Get Pro';
+            return;
+          }
           if (r.status === 200 && r.body.approveUrl) {
             // assign(), not replace(): Back from a checkout the buyer
             // abandoned should return to this page rather than skipping past
@@ -532,7 +639,7 @@
       // needs to know that, and needs a way to reach a human.
       function fail() {
         buy.disabled = false;
-        buy.textContent = 'Get Pro';
+        buy.textContent = renewKey ? 'Renew Pro — $' + '{{priceUSD}}' : 'Get Pro';
         buyNote.innerHTML = 'Checkout is temporarily unavailable. ' +
           'Please <a href="mailto:{{contactEmail}}">email us</a> and we will sort it out.';
       }
