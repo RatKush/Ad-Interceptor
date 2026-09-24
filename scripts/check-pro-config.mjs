@@ -76,6 +76,23 @@ const problems = [];
   }
 }
 
+// ---- Price agreement (checked in BOTH build modes) -------------------------
+// The popup's "Get Pro" button quotes the price and device limit. If the site
+// changes them and the popup does not, the button promises a price the
+// checkout will not charge.
+{
+  const popup = readFileSync(path.join(ROOT, 'popup.html'), 'utf8');
+  const seller = JSON.parse(readFileSync(path.join(ROOT, 'store-listing/web/seller.json'), 'utf8'));
+  const btn = popup.match(/id="buyProBtn"[^>]*>([^<]*)</);
+  const sub = popup.match(/class="pro-buy-sub">([^<]*)</);
+  if (!btn || !btn[1].includes(`$${seller.priceUSD}/year`)) {
+    problems.push(`popup.html "Get Pro" button does not quote $${seller.priceUSD}/year (seller.json priceUSD).`);
+  }
+  if (!sub || !sub[1].includes(`Up to ${seller.deviceLimit} devices`)) {
+    problems.push(`popup.html Get Pro line does not say "Up to ${seller.deviceLimit} devices" (seller.json deviceLimit).`);
+  }
+}
+
 if (!PRO_ENABLED) {
   if (problems.length) {
     console.error('Pre-build checks FAILED:\n');

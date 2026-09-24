@@ -314,7 +314,13 @@
     color: #fff;
   }
 
-  .btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
+  /* Must restate the gradient: `.btn:hover:not(:disabled)` is more specific
+     than `.btn-primary`, so on hover it swapped the gradient for the grey
+     surface while the text stayed white — the Activate button went blank. */
+  .btn-primary:hover:not(:disabled) {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+    filter: brightness(1.08);
+  }
 
   /* ---------- Pro ---------- */
   .pro {
@@ -485,6 +491,12 @@
   .pro-msg.error { color: var(--danger); }
 
   #removeBtn { width: 100%; margin-top: 11px; }
+
+  .pro-buy { margin-top: 12px; text-align: center; }
+  .pro-buy-btn { width: 100%; padding: 10px 13px; font-size: 13px; }
+  .pro-buy-sub { margin: 6px 0 0; font-size: 11px; color: var(--text-faint); }
+  .pro-key-label { margin: 14px 0 0; font-size: 11.5px; color: var(--text-muted); }
+  .pro-key-label + .pro-form { margin-top: 7px; }
 
   /* ---------- Pro teaser ---------- */
   /* Shown to free users instead of the Pro card, which needs licence code the
@@ -785,6 +797,16 @@
       </a>
     </div>
 
+    <!-- Shown only while Pro is inactive. The Pro card replaced the free
+         build's teaser, which held the only link to /pricing, so v3.3 had no
+         way to buy from the popup at all. Price and device count must match
+         store-listing/web/seller.json — scripts/check-pro-config.mjs fails the
+         build if they drift. -->
+    <div class="pro-buy" id="proBuy">
+      <button class="btn btn-primary pro-buy-btn" id="buyProBtn" type="button">Get Pro — $14.99/year</button>
+      <p class="pro-buy-sub">Up to 3 devices. Cancel any time.</p>
+    </div>
+    <p class="pro-key-label" id="proKeyLabel">Already purchased? Enter your licence key below.</p>
     <div class="pro-form" id="proForm">
       <input type="text" id="licenseKey" placeholder="Licence key" autocomplete="off" spellcheck="false">
       <button class="btn btn-primary" id="activateBtn">Activate</button>

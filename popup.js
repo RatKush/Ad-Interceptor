@@ -5,6 +5,9 @@
 // by two independent sections of the UI but describe one combined state. Held
 // here so the header can state it in one sentence instead of each section
 // half-answering it.
+// Where "Get Pro" and the free build's teaser both send people.
+const PRICING_URL = 'https://ad-interceptor.pages.dev/pricing';
+
 const state = {
   enabled: true,
   paused: false,
@@ -188,10 +191,12 @@ function initPro() {
   // that risk is gone. Landing on the homepage put the Pro section four
   // scrolls down behind three other sections, ending in an inline text link.
   // A button labelled "See what Pro adds" has to actually show what Pro adds.
-  teaserBtn.addEventListener('click', () => {
-    chrome.tabs.create({ url: 'https://ad-interceptor.pages.dev/pricing' });
+  const openPricing = () => {
+    chrome.tabs.create({ url: PRICING_URL });
     window.close();
-  });
+  };
+  teaserBtn.addEventListener('click', openPricing);
+  document.getElementById('buyProBtn').addEventListener('click', openPricing);
 
   // The summary line counts the list rather than hard-coding a number: the
   // free and Pro builds ship different feature sets, and a literal "7" would
@@ -224,6 +229,10 @@ function initPro() {
     }
     teaserCard.hidden = true;
     const active = !!status?.pro;
+    // The way to buy, and the line pointing at the key box, only mean
+    // something before a licence is active.
+    document.getElementById('proBuy').hidden = active;
+    document.getElementById('proKeyLabel').hidden = active;
     badge.textContent = active ? 'Active' : 'Inactive';
     badge.classList.toggle('active', active);
     form.hidden = active;
