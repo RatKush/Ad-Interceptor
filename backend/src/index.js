@@ -786,15 +786,21 @@ export default {
 
         const days = Math.min(Math.max(Number(url.searchParams.get('days')) || 30, 1), 365);
         const since = Date.now() - days * 24 * 60 * 60 * 1000;
+        // Data Saver's uninstall page writes to this same table (its Pages
+        // Function), so ?product=ad-interceptor or ?product=data-saver
+        // narrows it; without one, both come back labelled.
+        const product = url.searchParams.get('product') || null;
         const counts = await env.DB.prepare(
-          `SELECT reason, COUNT(*) AS n FROM feedback WHERE created_at > ?
-            GROUP BY reason ORDER BY n DESC`
-        ).bind(since).all();
+          `SELECT product, reason, COUNT(*) AS n FROM feedback
+            WHERE created_at > ? AND (?2 IS NULL OR product = ?2)
+            GROUP BY product, reason ORDER BY product, n DESC`
+        ).bind(since, product).all();
         const notes = await env.DB.prepare(
-          `SELECT reason, comment, version, country, created_at FROM feedback
-            WHERE created_at > ? AND comment IS NOT NULL ORDER BY created_at DESC LIMIT 200`
-        ).bind(since).all();
-        return json({ days, counts: counts.results, notes: notes.results });
+          `SELECT product, reason, comment, version, country, created_at FROM feedback
+            WHERE created_at > ? AND (?2 IS NULL OR product = ?2) AND comment IS NOT NULL
+            ORDER BY created_at DESC LIMIT 200`
+        ).bind(since, product).all();
+        return json({ days, product, counts: counts.results, notes: notes.results });
       }
 
       // --- admin: publish a filter build ---------------------------------
