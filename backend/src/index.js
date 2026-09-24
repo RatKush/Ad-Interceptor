@@ -772,13 +772,17 @@ export default {
               WHERE provider_subscription_id = ? AND status != 'revoked'`
           ).bind(lookup.id).first();
 
-        // A one-time order id: the orders table knows which key it bought or
-        // renewed, including renewals, whose licence row carries the ORIGINAL
-        // order id. This is what makes the receipt's recover link work.
+        // A one-time order id OR its capture id: the orders table knows which
+        // key each payment bought or renewed (a renewal's licence row carries
+        // the ORIGINAL order id). The capture id is what PayPal's receipt
+        // email calls the "Transaction ID", so a buyer who closed the tab
+        // before saving the key can get it back from the email they already
+        // have — the "Lost your key?" box on /pricing sends it here.
         if (!row && lookup.by === 'payment') {
           const viaOrder = await env.DB.prepare(
             `SELECT l.key, l.expires_at FROM orders o JOIN licenses l ON l.key = o.license_key
-              WHERE o.order_id = ? AND o.status != 'reversed' AND l.status != 'revoked'`
+              WHERE (o.order_id = ?1 OR o.capture_id = ?1)
+                AND o.status != 'reversed' AND l.status != 'revoked'`
           ).bind(lookup.id).first();
           if (viaOrder) return json({ ready: true, key: viaOrder.key, expiresAt: viaOrder.expires_at ?? null });
         }

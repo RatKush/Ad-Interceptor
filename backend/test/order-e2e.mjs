@@ -83,6 +83,10 @@ try {
 
   const rec = await fetch(`${BASE}/v1/license/by-transaction?transaction_id=${a.token}`).then((r) => r.json());
   check('the recover link (order id) finds the same key', rec.key === c1.body.key, JSON.stringify(rec));
+  const byReceipt = await fetch(`${BASE}/v1/license/by-transaction?transaction_id=CAP${a.token}`).then((r) => r.json());
+  check("PayPal's receipt Transaction ID (capture id) finds it too", byReceipt.key === c1.body.key, JSON.stringify(byReceipt));
+  const wrong = await fetch(`${BASE}/v1/license/by-transaction?transaction_id=NOTAREALTXN0001`);
+  check('an unknown Transaction ID finds nothing', wrong.status === 404);
 
   console.log('\nConcurrent captures of one order');
   const b = await startOrder();

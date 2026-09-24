@@ -28,6 +28,13 @@
   /* .plans sets display:grid, which beats the UA's [hidden] rule — without
      this the plan cards and a live Get Pro button stayed on the receipt. */
   .plans[hidden] { display: none; }
+  .lostrow { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 0; max-width: 560px; }
+  .lostrow input {
+    flex: 1; min-width: 16ch; font: inherit; font-family: var(--mono); font-size: 15px;
+    padding: 9px 12px; color: var(--text); background: var(--bg);
+    border: 1px solid var(--surface-border); border-radius: 8px;
+  }
+  .lostrow input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   .buy-note { font-size: 12px; color: var(--text-muted); margin: 8px 0 0; text-align: center; }
   .renew-note {
     font-size: 13px; margin: 16px 0 -6px; padding: 9px 12px; border-radius: 8px;
@@ -189,6 +196,23 @@
     adds another 12 months to the same key.
   </p>
 
+  <!-- For a buyer who paid but closed the tab before saving the key. PayPal
+       emails every buyer a receipt with a Transaction ID (our capture id);
+       this trades it for the key through the same receipt view a recover
+       link uses. -->
+  <section class="lost" id="lostKey">
+    <h2>Lost your licence key?</h2>
+    <p>
+      Enter the <strong>Transaction ID</strong> from the receipt PayPal emailed
+      you when you paid. It is a code of about 17 letters and numbers.
+    </p>
+    <form class="lostrow" id="lostForm">
+      <input id="lostId" type="text" placeholder="Transaction ID, e.g. 1AB23456CD7890123" autocomplete="off" spellcheck="false" aria-label="PayPal Transaction ID">
+      <button class="btn-copy" type="submit">Find my key</button>
+    </form>
+    <p class="note" id="lostMsg" hidden></p>
+  </section>
+
   <section>
     <h2>What Pro actually adds</h2>
     <div class="cols">
@@ -346,6 +370,20 @@
       setTimeout(function () { downloadBtn.textContent = 'Download as .txt'; }, 1800);
     });
 
+    // "Lost your key?" — hand the Transaction ID to the receipt view below.
+    var lostForm = document.getElementById('lostForm');
+    lostForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var id = document.getElementById('lostId').value.replace(/\s+/g, '');
+      var msg = document.getElementById('lostMsg');
+      if (!/^[A-Za-z0-9_-]{8,80}$/.test(id)) {
+        msg.textContent = 'That does not look like a Transaction ID. Copy it from the PayPal receipt email.';
+        msg.hidden = false;
+        return;
+      }
+      location.assign('/pricing?recover=' + encodeURIComponent(id) + '&k=p');
+    });
+
     // Ways to land on a key, in priority order:
     //   ?subscription_id=I-...  — PayPal's post-approval return
     //   ?recover=I-...          — a bookmark the buyer kept
@@ -387,7 +425,7 @@
     } else if (recovered) {
       // k=p marks a recover link built from a payment id. Absent means
       // subscription, which is what PayPal issues and therefore the default.
-      lookup = { id: recovered, kind: params.get('k') === 'p' ? 'payment' : 'subscription' };
+      lookup = { id: recovered, kind: params.get('k') === 'p' ? 'payment' : 'subscription', recover: true };
     } else if (!cancelled && fromDodo) {
       var st = params.get('status');
       if (!st || st === 'succeeded') lookup = { id: fromDodo, kind: 'payment' };
@@ -402,6 +440,7 @@
       // live "Get Pro" button on a receipt page invites a second purchase.
       var plans = document.querySelector('.plans');
       if (plans) plans.hidden = true;
+      document.getElementById('lostKey').hidden = true;
       keyBox.scrollIntoView({ block: 'start' });
 
       if (lookup.kind === 'order') captureOrder(lookup.id, 0);
@@ -505,6 +544,15 @@
                 '<a href="' + url + '">' + url + '</a>';
               keyRecover.hidden = false;
             }
+            return;
+          }
+          // A recover lookup is for a purchase that already happened, so
+          // there is no webhook to wait for: not found means a wrong ID.
+          if (r.status === 404 && lookup.recover) {
+            document.getElementById('keyTitle').textContent = 'We could not find that purchase';
+            keyStatus.innerHTML = 'Check the Transaction ID in the PayPal receipt email and ' +
+              '<a href="/pricing#lostKey">try again</a>, or <a href="mailto:{{contactEmail}}">email us</a> ' +
+              'from the address you paid with and we will send your key.';
             return;
           }
           if (r.status === 404 && r.body.retryable) {
